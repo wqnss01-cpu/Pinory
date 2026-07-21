@@ -1,0 +1,54 @@
+services:
+  - type: web
+    name: pinory
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DB_POOL_MAX
+        value: "5"
+      - key: JWT_SECRET
+        sync: false
+      - key: SESSION_TTL_MINUTES
+        value: "30"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: ALLOW_DEV_TELEGRAM
+        value: "false"
+      - key: GEOCODING_URL
+        value: https://nominatim.openstreetmap.org/search
+      - key: GEOCODING_USER_AGENT
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_BUCKET
+        value: pinory-media
+      - key: S3_PUBLIC_URL
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        value: "true"
+      - key: S3_AUTO_CREATE_BUCKET
+        value: "false"
+      - key: S3_SET_PUBLIC_POLICY
+        value: "false"
+      - key: ENABLE_API_DOCS
+        value: "false"

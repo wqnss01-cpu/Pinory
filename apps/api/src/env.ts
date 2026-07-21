@@ -6,11 +6,16 @@ const northflankHost = process.env.NF_HOSTS
   ?.split(',')
   .map((value) => value.trim())
   .find(Boolean);
-const platformOrigin = process.env.KOYEB_PUBLIC_DOMAIN
-  ? `https://${process.env.KOYEB_PUBLIC_DOMAIN}`
-  : northflankHost
-    ? `https://${northflankHost}`
-    : undefined;
+const renderOrigin = process.env.RENDER_EXTERNAL_URL?.trim().replace(/\/+$/, '')
+  ?? (process.env.RENDER_EXTERNAL_HOSTNAME
+    ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '')}`
+    : undefined);
+const platformOrigin = renderOrigin
+  ?? (process.env.KOYEB_PUBLIC_DOMAIN
+    ? `https://${process.env.KOYEB_PUBLIC_DOMAIN}`
+    : northflankHost
+      ? `https://${northflankHost}`
+      : undefined);
 const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL ?? platformOrigin;
 
 const schema = z.object({
