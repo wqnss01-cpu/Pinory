@@ -1,0 +1,5 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(self)
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self' https://telegram.org; connect-src 'self' https:; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:; frame-ancestors https://web.telegram.org https://*.telegram.org
