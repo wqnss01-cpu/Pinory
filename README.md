@@ -6,9 +6,9 @@ Telegram Mini App, в котором места превращаются в ли
 
 Проект готов к внешнему запуску одним Docker-сервисом: Mini App, API и Telegram webhook работают на одном HTTPS-домене. Рекомендуемая бесплатная схема:
 
-- Koyeb Free — контейнер приложения;
+- Northflank Sandbox — постоянно работающий Docker-контейнер приложения;
 - Neon Free — PostgreSQL + PostGIS;
-- Cloudflare R2 — фотографии;
+- Supabase Storage Free — фотографии, без обязательной привязки карты;
 - GitHub — автоматические деплои после `git push`.
 
 Полная инструкция для запуска через BotFather: [docs/deploy-free.md](./docs/deploy-free.md).
@@ -29,7 +29,7 @@ API и Swagger в development доступны на `http://localhost:4000/docs`
 
 ## Telegram
 
-Для реального запуска нужны `TELEGRAM_BOT_TOKEN`, публичный HTTPS-домен и `TELEGRAM_WEBHOOK_SECRET`. На Koyeb адреса приложения, API и CORS автоматически формируются из `KOYEB_PUBLIC_DOMAIN`. Локальный вход по умолчанию выключен. Backend проверяет подпись и возраст `Telegram.WebApp.initData`, после чего выдаёт собственную короткую сессию.
+Для реального запуска нужны `TELEGRAM_BOT_TOKEN`, публичный HTTPS-домен и `TELEGRAM_WEBHOOK_SECRET`. На Northflank адреса приложения, API и CORS автоматически формируются из `NF_HOSTS`. Локальный вход по умолчанию выключен. Backend проверяет подпись и возраст `Telegram.WebApp.initData`, после чего выдаёт собственную короткую сессию.
 
 ## Команды
 
