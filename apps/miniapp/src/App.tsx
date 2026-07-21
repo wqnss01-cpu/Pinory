@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
 import { Map, Compass, Plus, Search, UserRound, WifiOff, Send } from 'lucide-react';
@@ -20,7 +20,7 @@ const EntrySheet = lazy(() => import('./components/EntrySheet').then((module) =>
 const CollectionSheet = lazy(() => import('./components/CollectionSheet').then((module) => ({ default: module.CollectionSheet })));
 const NotificationsSheet = lazy(() => import('./components/NotificationsSheet').then((module) => ({ default: module.NotificationsSheet })));
 
-async function bootstrap() { try { return await api.me(); } catch { return authenticate(); } }
+async function bootstrap() { const referral = telegram.startParam?.startsWith('ref_') || new URLSearchParams(location.search).has('ref'); if (referral) return authenticate(); try { return await api.me(); } catch { return authenticate(); } }
 const Loader = () => <div className="screen-loader"><i /></div>;
 
 export function App() {
@@ -30,6 +30,8 @@ export function App() {
   const collectionId = useAppStore((state) => state.selectedCollectionId);
   const addOpen = useAppStore((state) => state.addOpen);
   const notificationsOpen = useAppStore((state) => state.notificationsOpen);
+  const selectEntry = useAppStore((state) => state.select);
+  const openedEntry = useRef(false);
   const [online, setOnline] = useState(navigator.onLine);
   const auth = useQuery({ queryKey: ['me'], queryFn: bootstrap, retry: 1 });
 
@@ -42,6 +44,14 @@ export function App() {
     addEventListener('online', on); addEventListener('offline', off);
     return () => { unsubscribeTheme(); removeEventListener('online', on); removeEventListener('offline', off); };
   }, []);
+
+  useEffect(() => {
+    if (!auth.data?.isOnboardingCompleted || openedEntry.current) return;
+    const entryId = new URLSearchParams(location.search).get('entry');
+    if (!entryId || !/^[0-9a-f-]{36}$/i.test(entryId)) return;
+    openedEntry.current = true;
+    void api.entry(entryId).then(selectEntry).catch(() => undefined);
+  }, [auth.data?.isOnboardingCompleted, selectEntry]);
 
   if (auth.isLoading) return <div className="splash"><Logo large /><div className="splash-orbit"><i /><i /><i /></div><p>{t.loading}</p></div>;
   if (auth.isError || !auth.data) return <div className="error-page"><Logo /><div className="telegram-gate"><Send /></div><h1>Откройте Pinory в Telegram</h1><p>Для входа нужна защищённая сессия Telegram Mini App.</p><button className="primary" onClick={() => auth.refetch()}>{t.retry}</button></div>;

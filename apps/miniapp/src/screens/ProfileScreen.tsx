@@ -37,7 +37,7 @@ export function ProfileScreen({ me }: { me: User }) {
     mutationFn: () => user?.isFollowing ? api.unfollow(viewedUserId) : api.follow(viewedUserId),
     onSuccess: async () => { telegram.haptic('success'); await Promise.all([queryClient.invalidateQueries({ queryKey: ['user'] }), queryClient.invalidateQueries({ queryKey: ['connections'] }), queryClient.invalidateQueries({ queryKey: ['friend-locations'] })]); },
   });
-  const invite = async () => { const data = await api.invite(); telegram.share(`${location.origin}?ref=${data.start_parameter}`, t.inviteCta); };
+  const invite = async () => { const data = await api.invite(); const link = await api.telegramShareLink(data.start_parameter); telegram.share(link.url, t.inviteCta); };
 
   if (!user) return <section className="page profile-page"><div className="connection-loading"><LoaderCircle className="spin" />Открываем профиль…</div></section>;
   return <section className="page profile-page">

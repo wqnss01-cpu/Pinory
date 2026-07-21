@@ -67,6 +67,7 @@ export const api = {
   collectionToWishlist: (id: string) => request<{ created: number }>(`/collections/${id}/add-all-to-wishlist`, { method: 'POST', body: '{}' }),
   notifications: () => request<{ items: any[] }>('/notifications'),
   invite: () => request<{ start_parameter: string }>('/invitations/me'),
+  telegramShareLink: (start: string) => request<{ url: string }>(`/telegram/share-link?start=${encodeURIComponent(start)}`),
   follow: (id: string) => request<{ following: boolean; isFriend?: boolean }>(`/users/${id}/follow`, { method: 'POST', body: '{}' }),
   unfollow: async (id: string) => { await request<void>(`/users/${id}/follow`, { method: 'DELETE' }); return { following: false }; },
   createCollection: (data: unknown) => request<CollectionSummary>('/collections', { method: 'POST', body: JSON.stringify(data) }),
