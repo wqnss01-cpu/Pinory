@@ -84,8 +84,11 @@ export const discoveryRoutes: FastifyPluginAsync = async (app) => {
     }
     if (q.type === 'all' || q.type === 'users') {
       const result = await pool.query(
-        `SELECT * FROM users WHERE is_blocked=false AND (display_name ILIKE '%'||$1||'%' OR telegram_username ILIKE '%'||$1||'%') ORDER BY similarity(display_name,$1) DESC LIMIT 20`,
-        [q.query],
+        `SELECT u.*,
+          EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$2 AND f.following_id=u.id) is_following,
+          EXISTS(SELECT 1 FROM follows f JOIN follows back ON back.follower_id=f.following_id AND back.following_id=f.follower_id WHERE f.follower_id=$2 AND f.following_id=u.id) is_friend
+         FROM users u WHERE u.is_blocked=false AND (u.display_name ILIKE '%'||$1||'%' OR u.telegram_username ILIKE '%'||$1||'%') ORDER BY similarity(u.display_name,$1) DESC LIMIT 20`,
+        [q.query, request.user.sub],
       );
       response.users = result.rows.map((row) => serializeUser(row));
     }

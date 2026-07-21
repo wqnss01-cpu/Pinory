@@ -1,0 +1,20 @@
+html[data-theme=dark]{color-scheme:dark;--ink:#eef5f0;--muted:#9caea5;--paper:#101d19;--paper2:#182924;--coral:#ff806b;--teal:#38b8aa;--sun:#f1d177;--line:rgba(238,245,240,.13);--shadow:0 20px 55px rgba(0,0,0,.42);background:#09130f;color:#eef5f0}
+html[data-theme=dark] body,html[data-theme=dark] .app-shell,html[data-theme=dark] .page,html[data-theme=dark] .splash,html[data-theme=dark] .error-page,html[data-theme=dark] .onboarding{background-color:var(--paper);color:var(--ink)}
+html[data-theme=dark] .page{background:radial-gradient(circle at 100% 0,rgba(241,209,119,.07),transparent 25%),var(--paper)}
+html[data-theme=dark] .bottom-sheet{background:linear-gradient(180deg,#1a2d27,#12221d);color:var(--ink)}
+html[data-theme=dark] .bottom-nav,html[data-theme=dark] .search-pill,html[data-theme=dark] .map-tools button,html[data-theme=dark] .tool-popover,html[data-theme=dark] .address-results,html[data-theme=dark] .coordinate-picker>header>div,html[data-theme=dark] .coordinate-picker>footer,html[data-theme=dark] .glass-button,html[data-theme=dark] .collection-actions{background:rgba(24,41,36,.94);border-color:rgba(255,255,255,.11);color:var(--ink)}
+html[data-theme=dark] .field input,html[data-theme=dark] .field textarea,html[data-theme=dark] .field select,html[data-theme=dark] .location-actions>button,html[data-theme=dark] .icon-scroller button,html[data-theme=dark] .photo-drop,html[data-theme=dark] .comments-toggle{background:rgba(255,255,255,.045);color:var(--ink);border-color:var(--line)}
+html[data-theme=dark] .field input:focus,html[data-theme=dark] .field textarea:focus,html[data-theme=dark] .field select:focus,html[data-theme=dark] .icon-scroller button.selected{background:#20362f}
+html[data-theme=dark] input::placeholder,html[data-theme=dark] textarea::placeholder{color:#71847b}
+html[data-theme=dark] .sheet-close,html[data-theme=dark] .sheet-expand,html[data-theme=dark] .photo-arrow,html[data-theme=dark] .cover-edit{background:rgba(24,41,36,.9);color:var(--ink);border-color:rgba(255,255,255,.12)}
+html[data-theme=dark] .entry-story,html[data-theme=dark] .profile-bio{color:#c4d2cb}
+html[data-theme=dark] .entry-actions button,html[data-theme=dark] .owner-actions button,html[data-theme=dark] .delete-confirm button{background:#20342e;color:var(--ink)}
+html[data-theme=dark] .comment-box,html[data-theme=dark] .segmented,html[data-theme=dark] .suggestions button{background:rgba(255,255,255,.055)}
+html[data-theme=dark] .segmented button.active{background:#253b34;color:var(--ink)}
+html[data-theme=dark] .collection-actions .primary,html[data-theme=dark] .primary{background:var(--coral);color:#fff}
+html[data-theme=dark] .map-canvas,html[data-theme=dark] .profile-map-canvas,html[data-theme=dark] .coordinate-map{filter:brightness(.63) saturate(.72) contrast(1.06)}
+html[data-theme=dark] .map-vignette{background:linear-gradient(rgba(9,19,15,.3),transparent 22%,rgba(4,10,8,.22))}
+html[data-theme=dark] .photo-dots,html[data-theme=dark] .photo-counter{background:rgba(4,12,9,.65)}
+html[data-theme=dark] .form-error,html[data-theme=dark] .inline-error{color:#ffb4a8;background:rgba(255,128,107,.12)}
+html[data-theme=dark] .result-row:hover{background:rgba(56,184,170,.08)}
+html[data-theme=dark] .profile-orbit>span,html[data-theme=dark] .mini-avatar,html[data-theme=dark] .result-avatar{color:#17352e}

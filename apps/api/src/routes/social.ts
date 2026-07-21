@@ -35,10 +35,18 @@ export const socialRoutes: FastifyPluginAsync = async (app) => {
   });
   app.delete('/users/:id/follow',{preHandler:requireUser},async(request,reply)=>{const{id}=z.object({id:z.string().uuid()}).parse(request.params);await pool.query('DELETE FROM follows WHERE follower_id=$1 AND following_id=$2',[request.user.sub,id]);return reply.code(204).send();});
 
-  for(const kind of ['followers','following'] as const) app.get(`/users/:id/${kind}`,{preHandler:requireUser},async(request)=>{
+  for(const kind of ['followers','following','friends'] as const) app.get(`/users/:id/${kind}`,{preHandler:requireUser},async(request)=>{
     const{id}=z.object({id:z.string().uuid()}).parse(request.params); const q=z.object({cursor:z.string().optional(),limit:z.coerce.number().min(1).max(50).default(20)}).parse(request.query);const cursor=decodeCursor(q.cursor);
-    const join=kind==='followers'?'f.follower_id=u.id AND f.following_id=$1':'f.following_id=u.id AND f.follower_id=$1';
-    const result=await pool.query(`SELECT u.*,f.created_at FROM follows f JOIN users u ON ${join} WHERE u.is_blocked=false AND ($2::timestamptz IS NULL OR f.created_at<$2) ORDER BY f.created_at DESC LIMIT $3`,[id,cursor,q.limit+1]);
+    const relation=kind==='followers'
+      ? 'FROM follows f JOIN users u ON f.follower_id=u.id AND f.following_id=$1'
+      : kind==='following'
+        ? 'FROM follows f JOIN users u ON f.following_id=u.id AND f.follower_id=$1'
+        : `FROM follows f JOIN follows back ON back.follower_id=f.following_id AND back.following_id=f.follower_id JOIN users u ON u.id=f.following_id WHERE f.follower_id=$1`;
+    const where=kind==='friends'?'AND':'WHERE';
+    const result=await pool.query(`SELECT u.*,f.created_at,
+      EXISTS(SELECT 1 FROM follows mine WHERE mine.follower_id=$4 AND mine.following_id=u.id) is_following,
+      EXISTS(SELECT 1 FROM follows mine JOIN follows reciprocal ON reciprocal.follower_id=mine.following_id AND reciprocal.following_id=mine.follower_id WHERE mine.follower_id=$4 AND mine.following_id=u.id) is_friend
+      ${relation} ${where} u.is_blocked=false AND ($2::timestamptz IS NULL OR f.created_at<$2) ORDER BY f.created_at DESC LIMIT $3`,[id,cursor,q.limit+1,request.user.sub]);
     const hasMore=result.rows.length>q.limit;const rows=result.rows.slice(0,q.limit);return{items:rows.map((r)=>serializeUser(r)),nextCursor:hasMore?encodeCursor(rows.at(-1).created_at):null};
   });
 

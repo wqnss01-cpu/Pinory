@@ -1,5 +1,5 @@
 import type { AuthResponse, CreateEntryInput, MapEntry, Place, User } from '@pinory/shared';
-import { telegram } from './telegram';
+import { telegram } from '../lib/telegram';
 
 const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '/api/v1' : 'http://localhost:4000/api/v1');
 let token = localStorage.getItem('pinory.access');
@@ -24,10 +24,7 @@ export async function authenticate() {
   const params = new URLSearchParams(location.search);
   const data = await request<AuthResponse>('/auth/telegram', {
     method: 'POST',
-    body: JSON.stringify({
-      initData: telegram.initData,
-      referral: telegram.startParam ?? params.get('ref') ?? undefined,
-    }),
+    body: JSON.stringify({ initData: telegram.initData, referral: telegram.startParam ?? params.get('ref') ?? undefined }),
   });
   token = data.accessToken;
   localStorage.setItem('pinory.access', token);
@@ -35,45 +32,25 @@ export async function authenticate() {
   return data.user;
 }
 
-export interface GeocodeResult {
-  id: string;
-  name: string;
-  address: string;
-  city: string | null;
-  countryName: string | null;
-  categoryCode: string;
-  coordinates: { lat: number; lng: number };
-}
-
-export interface CollectionSummary {
-  id: string;
-  userId: string;
-  title: string;
-  description: string | null;
-  visibility: string;
-  coverUrl: string | null;
-  placesCount: number;
-  followersCount: number;
-  isFollowing: boolean;
-  createdAt: string;
-  author: {
-    id: string;
-    displayName: string;
-    avatarUrl: string | null;
-    telegramUsername?: string | null;
-  };
-}
-
-export interface CollectionDetail extends CollectionSummary {
-  entries: MapEntry[];
-}
+export interface GeocodeResult { id: string; name: string; address: string; city: string | null; countryName: string | null; categoryCode: string; coordinates: { lat: number; lng: number } }
+export interface CollectionSummary { id: string; userId: string; title: string; description: string | null; visibility: string; coverUrl: string | null; placesCount: number; followersCount: number; isFollowing: boolean; createdAt: string; author: { id: string; displayName: string; avatarUrl: string | null; telegramUsername?: string | null } }
+export interface CollectionDetail extends CollectionSummary { entries: MapEntry[] }
+export type ConnectionKind = 'followers' | 'following' | 'friends';
+export interface FriendLocation { id: string; displayName: string; avatarUrl: string | null; telegramUsername: string | null; coordinates: { lat: number; lng: number }; accuracy: number | null; recordedAt: string; isLive: boolean }
+export interface Achievement { code: string; title: string; description: string; icon: string; xp: number; progress: number; target: number; unlockedAt: string | null }
+export interface AchievementsResponse { level: number; totalXp: number; levelXp: number; nextLevelXp: number; achievements: Achievement[] }
 
 export const api = {
   me: () => request<User>('/auth/me'),
   user: (id: string) => request<User>(`/users/${id}`),
   updateMe: (data: unknown) => request<User>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
-  map: (bbox: string, layers: string, entryTypes: string) =>
-    request<{ items: MapEntry[] }>(`/map/entries?bbox=${encodeURIComponent(bbox)}&zoom=10&layers=${encodeURIComponent(layers)}&entryTypes=${encodeURIComponent(entryTypes)}`),
+  connections: (id: string, kind: ConnectionKind) => request<{ items: User[]; nextCursor: string | null }>(`/users/${id}/${kind}?limit=50`),
+  achievements: (id: string) => request<AchievementsResponse>(`/users/${id}/achievements`),
+  locationStatus: () => request<{ enabled: boolean }>('/locations/me/status'),
+  updateLocation: (data: { lat: number; lng: number; accuracy?: number }) => request<{ enabled: boolean; recordedAt: string }>('/locations/me', { method: 'POST', body: JSON.stringify(data) }),
+  disableLocation: () => request<void>('/locations/me', { method: 'DELETE' }),
+  friendLocations: () => request<{ items: FriendLocation[] }>('/locations/friends'),
+  map: (bbox: string, layers: string, entryTypes: string) => request<{ items: MapEntry[] }>(`/map/entries?bbox=${encodeURIComponent(bbox)}&zoom=10&layers=${encodeURIComponent(layers)}&entryTypes=${encodeURIComponent(entryTypes)}`),
   geocode: (query: string) => request<{ items: GeocodeResult[] }>(`/geocoding/search?query=${encodeURIComponent(query)}&limit=7`),
   createEntry: (data: CreateEntryInput) => request<MapEntry>('/entries', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(data) }),
   updateEntry: (id: string, data: unknown) => request<MapEntry>(`/entries/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -86,29 +63,15 @@ export const api = {
   userEntries: (id: string) => request<{ items: MapEntry[] }>(`/users/${id}/entries`),
   collection: (id: string) => request<CollectionDetail>(`/collections/${id}`),
   followCollection: (id: string) => request<{ following: boolean }>(`/collections/${id}/follow`, { method: 'POST', body: '{}' }),
-  unfollowCollection: async (id: string) => {
-    await request<void>(`/collections/${id}/follow`, { method: 'DELETE' });
-    return { following: false };
-  },
+  unfollowCollection: async (id: string) => { await request<void>(`/collections/${id}/follow`, { method: 'DELETE' }); return { following: false }; },
   collectionToWishlist: (id: string) => request<{ created: number }>(`/collections/${id}/add-all-to-wishlist`, { method: 'POST', body: '{}' }),
   notifications: () => request<{ items: any[] }>('/notifications'),
   invite: () => request<{ start_parameter: string }>('/invitations/me'),
   follow: (id: string) => request<{ following: boolean; isFriend?: boolean }>(`/users/${id}/follow`, { method: 'POST', body: '{}' }),
-  unfollow: async (id: string) => {
-    await request<void>(`/users/${id}/follow`, { method: 'DELETE' });
-    return { following: false };
-  },
+  unfollow: async (id: string) => { await request<void>(`/users/${id}/follow`, { method: 'DELETE' }); return { following: false }; },
   createCollection: (data: unknown) => request<CollectionSummary>('/collections', { method: 'POST', body: JSON.stringify(data) }),
   comment: (id: string, text: string) => request(`/entries/${id}/comments`, { method: 'POST', body: JSON.stringify({ text }) }),
   comments: (id: string) => request<{ items: any[] }>(`/entries/${id}/comments`),
-  upload: async (id: string, files: FileList) => {
-    const body = new FormData();
-    [...files].forEach((file) => body.append('photos', file));
-    return request(`/entries/${id}/media`, { method: 'POST', body });
-  },
-  uploadCollectionCover: async (id: string, file: File) => {
-    const body = new FormData();
-    body.append('cover', file);
-    return request<{ id: string; coverUrl: string; thumbnailUrl: string }>(`/collections/${id}/cover`, { method: 'POST', body });
-  },
+  upload: async (id: string, files: FileList) => { const body = new FormData(); [...files].forEach((file) => body.append('photos', file)); return request(`/entries/${id}/media`, { method: 'POST', body }); },
+  uploadCollectionCover: async (id: string, file: File) => { const body = new FormData(); body.append('cover', file); return request<{ id: string; coverUrl: string; thumbnailUrl: string }>(`/collections/${id}/cover`, { method: 'POST', body }); },
 };
