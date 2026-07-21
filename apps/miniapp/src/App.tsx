@@ -9,6 +9,7 @@ import { t } from './i18n/ru';
 import { useAppStore, type Screen } from './store';
 import { Logo } from './components/Logo';
 import { LocationPresenceTracker } from './components/LocationPresenceTracker';
+import './stories.css';
 
 const Onboarding = lazy(() => import('./components/Onboarding').then((module) => ({ default: module.Onboarding })));
 const MapScreen = lazy(() => import('./screens/MapScreen').then((module) => ({ default: module.MapScreen })));
@@ -19,6 +20,7 @@ const AddEntrySheet = lazy(() => import('./components/AddEntrySheet').then((modu
 const EntrySheet = lazy(() => import('./components/EntrySheet').then((module) => ({ default: module.EntrySheet })));
 const CollectionSheet = lazy(() => import('./components/CollectionSheet').then((module) => ({ default: module.CollectionSheet })));
 const NotificationsSheet = lazy(() => import('./components/NotificationsSheet').then((module) => ({ default: module.NotificationsSheet })));
+const StoryViewer = lazy(() => import('./components/StoryViewer').then((module) => ({ default: module.StoryViewer })));
 
 async function bootstrap() { const referral = telegram.startParam?.startsWith('ref_') || new URLSearchParams(location.search).has('ref'); if (referral) return authenticate(); try { return await api.me(); } catch { return authenticate(); } }
 const Loader = () => <div className="screen-loader"><i /></div>;
@@ -30,6 +32,8 @@ export function App() {
   const collectionId = useAppStore((state) => state.selectedCollectionId);
   const addOpen = useAppStore((state) => state.addOpen);
   const notificationsOpen = useAppStore((state) => state.notificationsOpen);
+  const storyUserId = useAppStore((state) => state.storyUserId);
+  const storyEntryId = useAppStore((state) => state.storyEntryId);
   const selectEntry = useAppStore((state) => state.select);
   const openedEntry = useRef(false);
   const [online, setOnline] = useState(navigator.onLine);
@@ -57,7 +61,7 @@ export function App() {
   if (auth.isError || !auth.data) return <div className="error-page"><Logo /><div className="telegram-gate"><Send /></div><h1>Откройте Pinory в Telegram</h1><p>Для входа нужна защищённая сессия Telegram Mini App.</p><button className="primary" onClick={() => auth.refetch()}>{t.retry}</button></div>;
   if (!auth.data.isOnboardingCompleted) return <Suspense fallback={<Loader />}><Onboarding onDone={async () => { const user = await api.updateMe({ isOnboardingCompleted: true }); queryClient.setQueryData(['me'], user); }} /></Suspense>;
 
-  return <div className="app-shell"><LocationPresenceTracker />{!online && <div className="offline"><WifiOff size={15} />{t.offline}</div>}<main className="screen-stage"><Suspense fallback={<Loader />}><AnimatePresence mode="wait" initial={false}><motion.div className="screen-motion" key={screen} initial={{ opacity: 0, y: 8, scale: .995 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: .22, ease: [.2, .8, .2, 1] }}>{screen === 'map' && <MapScreen />}{screen === 'feed' && <FeedScreen />}{screen === 'search' && <SearchScreen />}{screen === 'profile' && <ProfileScreen me={auth.data as User} />}</motion.div></AnimatePresence></Suspense></main><BottomNav screen={screen} /><Suspense fallback={null}><AnimatePresence>{addOpen && <AddEntrySheet />}{selected && <EntrySheet entry={selected} />}{collectionId && <CollectionSheet id={collectionId} />}{notificationsOpen && <NotificationsSheet />}</AnimatePresence></Suspense></div>;
+  return <div className="app-shell"><LocationPresenceTracker />{!online && <div className="offline"><WifiOff size={15} />{t.offline}</div>}<main className="screen-stage"><Suspense fallback={<Loader />}><AnimatePresence mode="wait" initial={false}><motion.div className="screen-motion" key={screen} initial={{ opacity: 0, y: 8, scale: .995 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: .22, ease: [.2, .8, .2, 1] }}>{screen === 'map' && <MapScreen />}{screen === 'feed' && <FeedScreen />}{screen === 'search' && <SearchScreen />}{screen === 'profile' && <ProfileScreen me={auth.data as User} />}</motion.div></AnimatePresence></Suspense></main><BottomNav screen={screen} /><Suspense fallback={null}><AnimatePresence>{addOpen && <AddEntrySheet />}{selected && <EntrySheet entry={selected} />}{collectionId && <CollectionSheet id={collectionId} />}{notificationsOpen && <NotificationsSheet />}{storyUserId && <StoryViewer userId={storyUserId} initialEntryId={storyEntryId} />}</AnimatePresence></Suspense></div>;
 }
 
 function BottomNav({ screen }: { screen: Screen }) {

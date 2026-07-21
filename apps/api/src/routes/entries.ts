@@ -8,7 +8,7 @@ import { entrySelect, serializeEntry } from '../serializers.js';
 import { processAndUpload } from '../services/storage.js';
 
 async function getVisibleEntry(id: string, viewerId: string) {
-  const result = await pool.query(`${entrySelect} WHERE e.id=$1 AND e.deleted_at IS NULL AND u.is_blocked=false AND pinory_entry_visible(e.user_id,e.visibility,$2)`, [id, viewerId]);
+  const result = await pool.query(`${entrySelect} WHERE e.id=$1 AND e.deleted_at IS NULL AND u.is_blocked=false AND pinory_entry_visible(e.user_id,e.visibility,$2) AND (e.entry_type<>'STORY' OR e.expires_at>now())`, [id, viewerId]);
   return result.rows[0] ? serializeEntry(result.rows[0]) : null;
 }
 
@@ -30,11 +30,11 @@ export const entryRoutes: FastifyPluginAsync = async (app) => {
           placeId = inserted.rows[0].id;
         }
       }
-      const inserted = await client.query(`INSERT INTO map_entries(user_id,place_id,entry_type,title,description,visit_date,visibility,marker_icon_id,comments_enabled)
-        VALUES($1,$2,$3,$4,$5,$6,$7,(SELECT id FROM marker_icons WHERE code=$8),$9) RETURNING id`,
-        [request.user.sub,placeId,input.entryType,input.title,input.description??null,input.visitDate??null,input.visibility,input.markerIconCode,input.commentsEnabled]);
+      const inserted = await client.query(`INSERT INTO map_entries(user_id,place_id,entry_type,title,description,visit_date,visibility,marker_icon_id,comments_enabled,expires_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,(SELECT id FROM marker_icons WHERE code=$8),$9,CASE WHEN $3='STORY' THEN now()+interval '24 hours' ELSE NULL END) RETURNING id`,
+        [request.user.sub,placeId,input.entryType,input.title,input.description??null,input.visitDate??null,input.visibility,input.markerIconCode,input.entryType==='STORY'?false:input.commentsEnabled]);
       for (let i=0;i<input.collectionIds.length;i++) await client.query(`INSERT INTO collection_entries(collection_id,map_entry_id,sort_order) SELECT $1,$2,$3 FROM collections WHERE id=$1 AND user_id=$4 AND deleted_at IS NULL ON CONFLICT DO NOTHING`, [input.collectionIds[i],inserted.rows[0].id,i,request.user.sub]);
-      await client.query(`INSERT INTO analytics_events(user_id,name,properties) VALUES($1,$2,$3)`, [request.user.sub,input.entryType==='WISHLIST'?'wishlist_created':'entry_created',JSON.stringify({ placeId })]);
+      await client.query(`INSERT INTO analytics_events(user_id,name,properties) VALUES($1,$2,$3)`, [request.user.sub,input.entryType==='STORY'?'story_created':input.entryType==='WISHLIST'?'wishlist_created':'entry_created',JSON.stringify({ placeId })]);
       await client.query(`INSERT INTO idempotency_keys(user_id,key,route,response) VALUES($1,$2,'POST /entries',$3)`, [request.user.sub,key,JSON.stringify({ id: inserted.rows[0].id })]);
       return inserted.rows[0].id as string;
     });
@@ -52,7 +52,8 @@ export const entryRoutes: FastifyPluginAsync = async (app) => {
     if (!current.rows[0]) return reply.code(404).send({ code: 'ENTRY_NOT_FOUND', message: 'Отметка не найдена' });
     const next = { ...current.rows[0], ...Object.fromEntries(Object.entries(input).map(([k,v]) => [k.replace(/[A-Z]/g,(m)=>`_${m.toLowerCase()}`),v])) };
     await pool.query(`UPDATE map_entries SET entry_type=$1,title=$2,description=$3,visit_date=$4,visibility=$5,
-      marker_icon_id=(SELECT id FROM marker_icons WHERE code=$6),comments_enabled=$7 WHERE id=$8`,
+      marker_icon_id=(SELECT id FROM marker_icons WHERE code=$6),comments_enabled=CASE WHEN $1='STORY' THEN false ELSE $7 END,
+      expires_at=CASE WHEN $1='STORY' THEN COALESCE(expires_at,now()+interval '24 hours') ELSE NULL END WHERE id=$8`,
       [next.entry_type,next.title,next.description,next.visit_date,next.visibility,input.markerIconCode??'pin',next.comments_enabled,id]);
     return getVisibleEntry(id,request.user.sub);
   });
@@ -69,16 +70,29 @@ export const entryRoutes: FastifyPluginAsync = async (app) => {
     if (!result.rows[0]) return reply.code(409).send({ code: 'NOT_A_WISHLIST', message: 'Желание уже отмечено как посещённое' }); return getVisibleEntry(id,request.user.sub);
   });
 
-  app.post('/entries/:id/view', { preHandler: requireUser }, async (request) => {
+  app.post('/entries/:id/view', { preHandler: requireUser }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params); const sessionId = String(request.headers['x-session-id'] ?? request.user.sub);
     const inserted = await pool.query(`INSERT INTO entry_views(map_entry_id,viewer_user_id,session_id) SELECT $1,$2,$3 WHERE EXISTS(
-      SELECT 1 FROM map_entries e WHERE e.id=$1 AND e.deleted_at IS NULL AND pinory_entry_visible(e.user_id,e.visibility,$2)) ON CONFLICT DO NOTHING RETURNING map_entry_id`, [id,request.user.sub,sessionId]);
-    if (inserted.rowCount) await pool.query('UPDATE map_entries SET views_count=views_count+1 WHERE id=$1', [id]); return { counted: Boolean(inserted.rowCount) };
+      SELECT 1 FROM map_entries e WHERE e.id=$1 AND e.deleted_at IS NULL AND pinory_entry_visible(e.user_id,e.visibility,$2) AND (e.entry_type<>'STORY' OR e.expires_at>now())) ON CONFLICT DO NOTHING RETURNING map_entry_id`, [id,request.user.sub,sessionId]);
+    const current = inserted.rowCount
+      ? await pool.query('UPDATE map_entries SET views_count=views_count+1 WHERE id=$1 RETURNING views_count', [id])
+      : await pool.query(`SELECT views_count FROM map_entries e WHERE id=$1 AND e.deleted_at IS NULL AND pinory_entry_visible(e.user_id,e.visibility,$2) AND (e.entry_type<>'STORY' OR e.expires_at>now())`, [id,request.user.sub]);
+    if (!current.rows[0]) return reply.code(404).send({ code: 'ENTRY_NOT_FOUND', message: 'Отметка не найдена или недоступна' });
+    return { counted: Boolean(inserted.rowCount), viewsCount: Number(current.rows[0].views_count) };
+  });
+
+  app.get('/users/:id/stories', { preHandler: requireUser }, async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const result = await pool.query(`${entrySelect} WHERE e.user_id=$1 AND e.entry_type='STORY' AND e.deleted_at IS NULL AND e.expires_at>now()
+      AND u.is_blocked=false AND pinory_entry_visible(e.user_id,e.visibility,$2)
+      AND EXISTS(SELECT 1 FROM map_entry_media em JOIN media m ON m.id=em.media_id WHERE em.map_entry_id=e.id AND m.deleted_at IS NULL)
+      ORDER BY e.created_at ASC LIMIT 50`, [id,request.user.sub]);
+    return { items: result.rows.map(serializeEntry) };
   });
 
   app.post('/entries/:id/media', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const owned = await pool.query('SELECT id FROM map_entries WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL', [id,request.user.sub]);
+    const owned = await pool.query(`SELECT id FROM map_entries WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL AND (entry_type<>'STORY' OR expires_at>now())`, [id,request.user.sub]);
     if (!owned.rows[0]) return reply.code(404).send({ code: 'ENTRY_NOT_FOUND', message: 'Отметка не найдена' });
     const count = await pool.query('SELECT count(*)::int count FROM map_entry_media WHERE map_entry_id=$1', [id]);
     const files = request.files(); const uploaded: any[] = []; let position = Number(count.rows[0].count);

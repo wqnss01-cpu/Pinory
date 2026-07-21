@@ -56,6 +56,8 @@ export const api = {
   updateEntry: (id: string, data: unknown) => request<MapEntry>(`/entries/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEntry: (id: string) => request<void>(`/entries/${id}`, { method: 'DELETE' }),
   entry: (id: string) => request<MapEntry>(`/entries/${id}`),
+  viewEntry: (id: string) => request<{ counted: boolean; viewsCount: number }>(`/entries/${id}/view`, { method: 'POST', body: '{}' }),
+  stories: (id: string) => request<{ items: MapEntry[] }>(`/users/${id}/stories`),
   place: (id: string) => request<Place>(`/places/${id}`),
   feed: (kind: 'following' | 'nearby' | 'global') => request<{ items: MapEntry[] }>(`/feed/${kind}`),
   search: (query: string) => request<{ places: Place[]; users: User[]; collections: CollectionSummary[] }>(`/search?query=${encodeURIComponent(query)}&type=all`),

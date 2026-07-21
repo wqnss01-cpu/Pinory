@@ -51,7 +51,7 @@ export const socialRoutes: FastifyPluginAsync = async (app) => {
   });
 
   for(const segment of ['map','entries'] as const) app.get(`/users/:id/${segment}`,{preHandler:requireUser},async(request)=>{
-    const{id}=z.object({id:z.string().uuid()}).parse(request.params); const result=await pool.query(`${entrySelect} WHERE e.user_id=$1 AND e.deleted_at IS NULL AND pinory_entry_visible(e.user_id,e.visibility,$2) ORDER BY e.created_at DESC LIMIT 200`,[id,request.user.sub]);return{items:result.rows.map(serializeEntry),nextCursor:null};
+    const{id}=z.object({id:z.string().uuid()}).parse(request.params); const result=await pool.query(`${entrySelect} WHERE e.user_id=$1 AND e.deleted_at IS NULL AND e.entry_type<>'STORY' AND pinory_entry_visible(e.user_id,e.visibility,$2) ORDER BY e.created_at DESC LIMIT 200`,[id,request.user.sub]);return{items:result.rows.map(serializeEntry),nextCursor:null};
   });
 
   app.get('/entries/:id/comments',{preHandler:requireUser},async(request,reply)=>{const{id}=z.object({id:z.string().uuid()}).parse(request.params);

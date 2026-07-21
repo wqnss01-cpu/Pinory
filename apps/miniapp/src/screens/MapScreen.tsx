@@ -12,12 +12,12 @@ import { useAppStore } from '../store';
 import { pinoryMapStyle } from '../lib/mapStyle';
 
 export function MapScreen() {
-  const container = useRef<HTMLDivElement>(null); const mapRef = useRef<MapLibreMap | null>(null); const locationMarkerRef = useRef<Marker | null>(null); const friendMarkersRef = useRef(new Map<string, Marker>()); const entriesRef = useRef<MapEntry[]>([]);
+  const container = useRef<HTMLDivElement>(null); const mapRef = useRef<MapLibreMap | null>(null); const locationMarkerRef = useRef<Marker | null>(null); const friendMarkersRef = useRef(new Map<string, Marker>()); const storyMarkersRef = useRef(new Map<string, Marker>()); const entriesRef = useRef<MapEntry[]>([]);
   const [loaded, setLoaded] = useState(false); const [bbox, setBbox] = useState('37.30,55.55,37.95,55.93'); const [tools, setTools] = useState<'layers' | 'filters' | null>(null); const [locating, setLocating] = useState(false); const [hasLocation, setHasLocation] = useState(false);
   const initialCenter = useRef(useAppStore.getState().mapCenter).current;
-  const setCenter = useAppStore((state) => state.setMapCenter); const layers = useAppStore((state) => state.layers); const types = useAppStore((state) => state.entryTypes); const toggleLayer = useAppStore((state) => state.toggleLayer); const toggleType = useAppStore((state) => state.toggleType); const setScreen = useAppStore((state) => state.setScreen); const openProfile = useAppStore((state) => state.openProfile); const select = useAppStore((state) => state.select);
+  const setCenter = useAppStore((state) => state.setMapCenter); const layers = useAppStore((state) => state.layers); const types = useAppStore((state) => state.entryTypes); const toggleLayer = useAppStore((state) => state.toggleLayer); const toggleType = useAppStore((state) => state.toggleType); const setScreen = useAppStore((state) => state.setScreen); const openProfile = useAppStore((state) => state.openProfile); const select = useAppStore((state) => state.select); const openStories = useAppStore((state) => state.openStories); const mapFocus = useAppStore((state) => state.mapFocus); const clearMapFocus = useAppStore((state) => state.clearMapFocus);
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
-  const query = useQuery({ queryKey: ['map', bbox, layers.join(','), types.join(',')], queryFn: () => api.map(bbox, layers.join(','), types.join(',')), placeholderData: (old) => old });
+  const query = useQuery({ queryKey: ['map', bbox, layers.join(','), types.join(',')], queryFn: () => api.map(bbox, layers.join(','), types.join(',')), placeholderData: (old) => old, refetchInterval: 60_000 });
   const friends = useQuery({ queryKey: ['friend-locations'], queryFn: api.friendLocations, enabled: layers.includes('friends'), refetchInterval: 60_000, staleTime: 30_000 });
 
   const showLocation = useCallback((position: { lat: number; lng: number }, fly = true) => { const map = mapRef.current; if (!map) return; if (!locationMarkerRef.current) { const element = document.createElement('div'); element.className = 'user-location-marker'; element.append(document.createElement('span')); locationMarkerRef.current = new maplibregl.Marker({ element, anchor: 'center' }).setLngLat([position.lng, position.lat]).addTo(map); } else locationMarkerRef.current.setLngLat([position.lng, position.lat]); setHasLocation(true); if (fly) map.flyTo({ center: [position.lng, position.lat], zoom: 15, duration: 1000, essential: true }); }, []);
@@ -42,13 +42,32 @@ export function MapScreen() {
     map.on('click', 'entry-points', (event) => { const id = event.features?.[0]?.properties?.id; const found = entriesRef.current.find((entry) => entry.id === id); if (found) { telegram.haptic(); select(found); } });
     map.on('mouseenter', 'entry-points', () => { map.getCanvas().style.cursor = 'pointer'; }); map.on('mouseleave', 'entry-points', () => { map.getCanvas().style.cursor = ''; });
     mapRef.current = map;
-    return () => { locationMarkerRef.current?.remove(); locationMarkerRef.current = null; friendMarkersRef.current.forEach((marker) => marker.remove()); friendMarkersRef.current.clear(); map.remove(); mapRef.current = null; };
+    return () => { locationMarkerRef.current?.remove(); locationMarkerRef.current = null; friendMarkersRef.current.forEach((marker) => marker.remove()); friendMarkersRef.current.clear(); storyMarkersRef.current.forEach((marker) => marker.remove()); storyMarkersRef.current.clear(); map.remove(); mapRef.current = null; };
   }, [initialCenter, select, setCenter]);
 
   useEffect(() => { if (!loaded || !navigator.permissions) return; void navigator.permissions.query({ name: 'geolocation' }).then((permission) => { if (permission.state === 'granted') void locate(false); }).catch(() => undefined); }, [loaded, locate]);
-  const geojson = useMemo(() => ({ type: 'FeatureCollection' as const, features: (query.data?.items ?? []).map((entry) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: [entry.place.coordinates.lng, entry.place.coordinates.lat] }, properties: { id: entry.id, entryType: entry.entryType } })) }), [query.data]);
+  const geojson = useMemo(() => ({ type: 'FeatureCollection' as const, features: (query.data?.items ?? []).filter((entry) => entry.entryType !== 'STORY').map((entry) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: [entry.place.coordinates.lng, entry.place.coordinates.lat] }, properties: { id: entry.id, entryType: entry.entryType } })) }), [query.data]);
   useEffect(() => { entriesRef.current = query.data?.items ?? []; if (loaded) (mapRef.current?.getSource('entries') as GeoJSONSource | undefined)?.setData(geojson); }, [loaded, geojson, query.data]);
 
+  useEffect(() => {
+    const map = mapRef.current; if (!loaded || !map) return;
+    const active = new Set<string>();
+    for (const entry of (query.data?.items ?? []).filter((item) => item.entryType === 'STORY' && item.media[0])) {
+      active.add(entry.id); let marker = storyMarkersRef.current.get(entry.id);
+      if (!marker) {
+        const element = document.createElement('button'); element.type = 'button'; element.className = 'story-map-marker'; element.setAttribute('aria-label', `Открыть сторис ${entry.author.displayName}`);
+        const image = document.createElement('img'); image.src = entry.media[0]!.thumbnailUrl; image.alt = ''; element.append(image); element.addEventListener('click', () => { telegram.haptic(); openStories(entry.userId, entry.id); });
+        marker = new maplibregl.Marker({ element, anchor: 'bottom' }).setLngLat([entry.place.coordinates.lng, entry.place.coordinates.lat]).addTo(map); storyMarkersRef.current.set(entry.id, marker);
+      }
+      marker.setLngLat([entry.place.coordinates.lng, entry.place.coordinates.lat]);
+    }
+    storyMarkersRef.current.forEach((marker, id) => { if (!active.has(id)) { marker.remove(); storyMarkersRef.current.delete(id); } });
+  }, [loaded, openStories, query.data]);
+
+  useEffect(() => {
+    const map = mapRef.current; if (!loaded || !map || !mapFocus) return;
+    map.flyTo({ center: [mapFocus.lng, mapFocus.lat], zoom: 15.5, duration: 900, essential: true }); clearMapFocus();
+  }, [clearMapFocus, loaded, mapFocus]);
   useEffect(() => {
     const map = mapRef.current; if (!loaded || !map) return;
     const active = new Set<string>();

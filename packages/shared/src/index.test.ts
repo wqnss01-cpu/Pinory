@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canView, popularityScore } from './index.js';
+import { canView, EntryTypeSchema, popularityScore } from './index.js';
 
 describe('visibility', () => {
   it('keeps private content owner-only', () => expect(canView('PRIVATE', false, true)).toBe(false));
@@ -13,4 +13,9 @@ describe('popularity', () => {
     const old = popularityScore({ uniqueViews: 10, opens: 8, publicEntries: 2, comments: 2, wishlists: 3, collectionAdds: 1, collectionFollows: 1, ageHours: 500 });
     expect(fresh).toBeGreaterThan(old);
   });
+});
+
+
+describe('story entries', () => {
+  it('accepts the expiring story pin type', () => expect(EntryTypeSchema.parse('STORY')).toBe('STORY'));
 });

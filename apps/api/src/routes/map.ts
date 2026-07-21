@@ -29,8 +29,8 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
   app.get('/map/entries', { preHandler: requireUser }, async (request) => {
     const q = mapQuery.parse(request.query); const types = q.entryTypes?.split(',').filter(Boolean) ?? []; const categories = q.categories?.split(',').filter(Boolean) ?? []; const userIds = q.userIds?.split(',').filter(Boolean) ?? [];
     const values: unknown[] = [request.user.sub, q.bbox.west, q.bbox.south, q.bbox.east, q.bbox.north];
-    const where = [`e.deleted_at IS NULL`, `u.is_blocked=false`, `ST_Intersects(p.location, ST_MakeEnvelope($2,$3,$4,$5,4326)::geography)`, `pinory_entry_visible(e.user_id,e.visibility,$1)`,layerClause(q.layers)];
-    if (types.length) { values.push(types); where.push(`e.entry_type=ANY($${values.length}::entry_type[])`); }
+    const where = [`e.deleted_at IS NULL`, `u.is_blocked=false`, `ST_Intersects(p.location, ST_MakeEnvelope($2,$3,$4,$5,4326)::geography)`, `pinory_entry_visible(e.user_id,e.visibility,$1)`, `(e.entry_type<>'STORY' OR (e.expires_at>now() AND EXISTS(SELECT 1 FROM map_entry_media em JOIN media m ON m.id=em.media_id WHERE em.map_entry_id=e.id AND m.deleted_at IS NULL)))`,layerClause(q.layers)];
+    values.push(types); where.push(`(e.entry_type='STORY' OR e.entry_type=ANY($${values.length}::entry_type[]))`);
     if (categories.length) { values.push(categories); where.push(`pc.code=ANY($${values.length})`); }
     if (userIds.length) { values.push(userIds); where.push(`e.user_id=ANY($${values.length}::uuid[])`); }
     const result = await pool.query(`${entrySelect} WHERE ${where.join(' AND ')} ORDER BY e.created_at DESC LIMIT 500`, values);
@@ -42,6 +42,7 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
     const result = await pool.query(`SELECT round(ST_X(p.location::geometry)/$6)*$6 lng, round(ST_Y(p.location::geometry)/$6)*$6 lat, count(*)::int count,
       array_agg(e.id ORDER BY e.created_at DESC)[1:8] entry_ids FROM map_entries e JOIN places p ON p.id=e.place_id JOIN users u ON u.id=e.user_id
       WHERE e.deleted_at IS NULL AND u.is_blocked=false AND pinory_entry_visible(e.user_id,e.visibility,$1) AND ${layerClause(q.layers)}
+      AND (e.entry_type<>'STORY' OR (e.expires_at>now() AND EXISTS(SELECT 1 FROM map_entry_media em JOIN media m ON m.id=em.media_id WHERE em.map_entry_id=e.id AND m.deleted_at IS NULL)))
       AND ST_Intersects(p.location,ST_MakeEnvelope($2,$3,$4,$5,4326)::geography) GROUP BY 1,2 LIMIT 500`, [request.user.sub, q.bbox.west, q.bbox.south, q.bbox.east, q.bbox.north, cell]);
     return { items: result.rows.map((r) => ({ coordinates: { lat: Number(r.lat), lng: Number(r.lng) }, count: r.count, entryIds: r.entry_ids })) };
   });
@@ -50,7 +51,7 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
     const q = mapQuery.parse(request.query);
     const result = await pool.query(`SELECT DISTINCT ON(u.id) u.id,u.display_name,u.avatar_url,ST_Y(p.location::geometry) lat,ST_X(p.location::geometry) lng,e.created_at
       FROM follows f JOIN users u ON u.id=f.following_id JOIN map_entries e ON e.user_id=u.id JOIN places p ON p.id=e.place_id
-      WHERE f.follower_id=$1 AND e.deleted_at IS NULL AND pinory_entry_visible(e.user_id,e.visibility,$1)
+      WHERE f.follower_id=$1 AND e.deleted_at IS NULL AND e.entry_type<>'STORY' AND pinory_entry_visible(e.user_id,e.visibility,$1)
       AND ST_Intersects(p.location,ST_MakeEnvelope($2,$3,$4,$5,4326)::geography) ORDER BY u.id,e.created_at DESC`, [request.user.sub, q.bbox.west, q.bbox.south, q.bbox.east, q.bbox.north]);
     return { items: result.rows.map((r) => ({ id: r.id, displayName: r.display_name, avatarUrl: r.avatar_url, coordinates: { lat: Number(r.lat), lng: Number(r.lng) } })) };
   });
@@ -70,7 +71,7 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
     const q = z.object({ query: z.string().trim().min(1), city: z.string().optional(), limit: z.coerce.number().min(1).max(50).default(20) }).parse(request.query);
     const result = await pool.query(`SELECT p.*,ST_Y(location::geometry) lat,ST_X(location::geometry) lng,pc.code category_code,pc.name category_name,
       count(e.id)::int entries_count,count(e.id) FILTER(WHERE e.entry_type='VISITED')::int visited_count,count(e.id) FILTER(WHERE e.entry_type='WISHLIST')::int wishlist_count
-      FROM places p LEFT JOIN place_categories pc ON pc.id=p.category_id LEFT JOIN map_entries e ON e.place_id=p.id AND e.deleted_at IS NULL AND e.visibility='PUBLIC'
+      FROM places p LEFT JOIN place_categories pc ON pc.id=p.category_id LEFT JOIN map_entries e ON e.place_id=p.id AND e.deleted_at IS NULL AND e.visibility='PUBLIC' AND e.entry_type<>'STORY'
       WHERE (p.normalized_name % lower($1) OR p.normalized_name LIKE '%'||lower($1)||'%' OR p.address ILIKE '%'||$1||'%') AND ($2::text IS NULL OR p.city ILIKE $2)
       GROUP BY p.id,pc.code,pc.name ORDER BY similarity(p.normalized_name,lower($1)) DESC,p.popularity_score DESC LIMIT $3`, [q.query, q.city ?? null, q.limit]);
     return { items: result.rows.map(serializePlace), nextCursor: null };
@@ -88,7 +89,7 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
   app.get('/places/:id', { preHandler: requireUser }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const result = await pool.query(`SELECT p.*,ST_Y(location::geometry) lat,ST_X(location::geometry) lng,pc.code category_code,pc.name category_name,
-      count(e.id) FILTER(WHERE e.deleted_at IS NULL AND e.visibility='PUBLIC')::int entries_count,count(e.id) FILTER(WHERE e.entry_type='VISITED' AND e.deleted_at IS NULL)::int visited_count,
+      count(e.id) FILTER(WHERE e.deleted_at IS NULL AND e.visibility='PUBLIC' AND e.entry_type<>'STORY')::int entries_count,count(e.id) FILTER(WHERE e.entry_type='VISITED' AND e.deleted_at IS NULL)::int visited_count,
       count(e.id) FILTER(WHERE e.entry_type='WISHLIST' AND e.deleted_at IS NULL)::int wishlist_count FROM places p LEFT JOIN place_categories pc ON pc.id=p.category_id LEFT JOIN map_entries e ON e.place_id=p.id WHERE p.id=$1 GROUP BY p.id,pc.code,pc.name`, [id]);
     if (!result.rows[0]) return reply.code(404).send({ code: 'PLACE_NOT_FOUND', message: 'Место не найдено' }); return serializePlace(result.rows[0]);
   });

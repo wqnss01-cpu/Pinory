@@ -21,6 +21,7 @@ export function ProfileScreen({ me }: { me: User }) {
   const closeProfile = useAppStore((state) => state.closeProfile);
   const notifications = useAppStore((state) => state.setNotificationsOpen);
   const selectCollection = useAppStore((state) => state.selectCollection);
+  const openStories = useAppStore((state) => state.openStories);
   const [tab, setTab] = useState<ProfileTab>('entries');
   const [editing, setEditing] = useState(false); const [creating, setCreating] = useState(false); const [mapOpen, setMapOpen] = useState(false);
   const [connections, setConnections] = useState<ConnectionKind | null>(null);
@@ -30,9 +31,11 @@ export function ProfileScreen({ me }: { me: User }) {
   const collections = useQuery({ queryKey: ['user-collections', viewedUserId], queryFn: () => api.userCollections(viewedUserId), enabled: tab === 'collections' });
   const achievements = useQuery({ queryKey: ['achievements', viewedUserId], queryFn: () => api.achievements(viewedUserId), enabled: tab === 'achievements' });
   const locations = useQuery({ queryKey: ['friend-locations'], queryFn: api.friendLocations, enabled: viewedUserId !== me.id, refetchInterval: 60_000 });
+  const stories = useQuery({ queryKey: ['stories', viewedUserId], queryFn: () => api.stories(viewedUserId), staleTime: 20_000, refetchInterval: 60_000 });
   const isOwn = viewedUserId === me.id;
   const user = profile.data ?? (isOwn ? me : undefined);
   const presence = locations.data?.items.find((item) => item.id === viewedUserId);
+  const hasStories = Boolean(stories.data?.items.length);
   const follow = useMutation({
     mutationFn: () => user?.isFollowing ? api.unfollow(viewedUserId) : api.follow(viewedUserId),
     onSuccess: async () => { telegram.haptic('success'); await Promise.all([queryClient.invalidateQueries({ queryKey: ['user'] }), queryClient.invalidateQueries({ queryKey: ['connections'] }), queryClient.invalidateQueries({ queryKey: ['friend-locations'] })]); },
@@ -42,7 +45,7 @@ export function ProfileScreen({ me }: { me: User }) {
   if (!user) return <section className="page profile-page"><div className="connection-loading"><LoaderCircle className="spin" />Открываем профиль…</div></section>;
   return <section className="page profile-page">
     <header className="page-header">{isOwn ? <Logo /> : <div className="profile-header-title"><button className="icon-button profile-back" onClick={closeProfile}><ArrowLeft /></button><Logo /></div>}<div>{isOwn && <button className="icon-button" onClick={() => notifications(true)}><Bell /></button>}{isOwn && <button className="icon-button" onClick={() => setEditing(true)}><Settings /></button>}</div></header>
-    <div className="profile-hero"><div className="profile-orbit"><i /><span>{user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : user.displayName[0]}</span><b><MapPinned /></b></div><div><span className="eyebrow">{isOwn ? t.profile.myAtlas : user.isFriend ? 'ВАШ ДРУГ' : 'ПРОФИЛЬ PINORY'}</span><h1>{user.displayName}</h1><p>{[user.telegramUsername ? `@${user.telegramUsername}` : null, user.homeCity].filter(Boolean).join(' · ') || 'Исследователь мест'}</p>{presence && <span className={`profile-status-line ${presence.isLive ? 'live' : ''}`}><i />{formatPresence(presence.recordedAt, presence.isLive)}</span>}</div></div>
+    <div className="profile-hero"><button type="button" className={`profile-orbit ${hasStories ? 'has-story' : ''}`} disabled={!hasStories} onClick={() => hasStories && openStories(viewedUserId)} aria-label={hasStories ? `Открыть сторис ${user.displayName}` : undefined}><i /><span>{user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : user.displayName[0]}</span><b><MapPinned /></b>{hasStories && <small className="story-orbit-label">Сторис</small>}</button><div><span className="eyebrow">{isOwn ? t.profile.myAtlas : user.isFriend ? 'ВАШ ДРУГ' : 'ПРОФИЛЬ PINORY'}</span><h1>{user.displayName}</h1><p>{[user.telegramUsername ? `@${user.telegramUsername}` : null, user.homeCity].filter(Boolean).join(' · ') || 'Исследователь мест'}</p>{presence && <span className={`profile-status-line ${presence.isLive ? 'live' : ''}`}><i />{formatPresence(presence.recordedAt, presence.isLive)}</span>}</div></div>
     <p className={`profile-bio ${user.bio ? '' : 'empty-bio'}`}>{user.bio ?? (isOwn ? 'Добавьте пару слов о себе и своих путешествиях.' : 'Пользователь пока ничего о себе не рассказал.')}</p>
     <div className={`profile-actions ${isOwn ? 'three' : 'two'}` }>{isOwn ? <button className="primary" onClick={() => setEditing(true)}><Edit3 />{t.profile.edit}</button> : <button className={`primary follow-profile ${user.isFollowing ? 'following' : ''}`} disabled={follow.isPending} onClick={() => follow.mutate()}>{follow.isPending ? <LoaderCircle className="spin" /> : user.isFollowing ? <UserCheck /> : <UserPlus />}{user.isFollowing ? 'Вы подписаны' : 'Подписаться'}</button>}{isOwn && <button onClick={invite}><UserPlus /><span className="secondary-label">{t.profile.invite}</span></button>}<button className="map-action" onClick={() => setMapOpen(true)} aria-label="Открыть личную карту"><MapPinned /></button></div>
     {isOwn && <LocationSharingCard />}

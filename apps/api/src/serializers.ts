@@ -16,6 +16,7 @@ export function serializeEntry(row: any) {
     visitDate: row.visit_date ? new Date(row.visit_date).toISOString().slice(0, 10) : null, visibility: row.visibility,
     icon: row.icon_code ?? 'pin', iconColor: row.icon_color ?? '#ef6c56', commentsEnabled: row.comments_enabled,
     viewsCount: Number(row.views_count), commentsCount: Number(row.comments_count), createdAt: new Date(row.created_at).toISOString(),
+    expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
     author: { id: row.user_id, displayName: row.display_name, avatarUrl: row.avatar_url, telegramUsername: row.telegram_username },
     place: serializePlace(row), media: row.media ?? [] };
 }
