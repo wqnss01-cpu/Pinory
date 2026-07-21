@@ -2,8 +2,16 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const booleanFromString = z.string().default('false').transform((value) => value === 'true');
-const koyebOrigin = process.env.KOYEB_PUBLIC_DOMAIN ? `https://${process.env.KOYEB_PUBLIC_DOMAIN}` : undefined;
-const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL ?? koyebOrigin;
+const northflankHost = process.env.NF_HOSTS
+  ?.split(',')
+  .map((value) => value.trim())
+  .find(Boolean);
+const platformOrigin = process.env.KOYEB_PUBLIC_DOMAIN
+  ? `https://${process.env.KOYEB_PUBLIC_DOMAIN}`
+  : northflankHost
+    ? `https://${northflankHost}`
+    : undefined;
+const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL ?? platformOrigin;
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -42,7 +50,7 @@ const parsed = schema.parse({
   ...process.env,
   API_PORT: process.env.PORT ?? process.env.API_PORT,
   TELEGRAM_MINI_APP_URL: miniAppUrl,
-  PUBLIC_API_URL: process.env.PUBLIC_API_URL ?? (koyebOrigin ? `${koyebOrigin}/api/v1` : undefined),
+  PUBLIC_API_URL: process.env.PUBLIC_API_URL ?? (platformOrigin ? `${platformOrigin}/api/v1` : undefined),
   CORS_ORIGINS: process.env.CORS_ORIGINS ?? miniAppUrl ?? '',
 });
 
