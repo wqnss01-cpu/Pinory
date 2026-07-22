@@ -39,7 +39,7 @@ export function MapScreen() {
     });
     map.on('moveend', () => { const bounds = map.getBounds(); setBbox(`${bounds.getWest().toFixed(5)},${bounds.getSouth().toFixed(5)},${bounds.getEast().toFixed(5)},${bounds.getNorth().toFixed(5)}`); const next = map.getCenter(); setCenter({ lat: next.lat, lng: next.lng }); });
     map.on('click', 'clusters', (event) => { const feature = map.queryRenderedFeatures(event.point, { layers: ['clusters'] })[0]; if (!feature) return; const id = feature.properties?.cluster_id as number; void (map.getSource('entries') as GeoJSONSource).getClusterExpansionZoom(id).then((zoom) => map.easeTo({ center: (feature.geometry as any).coordinates as [number, number], zoom, duration: 650 })); });
-    map.on('click', 'entry-points', (event) => { const id = event.features?.[0]?.properties?.id; const found = entriesRef.current.find((entry) => entry.id === id); if (found) { telegram.haptic(); select(found); } });
+    map.on('click', 'entry-points', (event) => { const id = event.features?.[0]?.properties?.id; const found = entriesRef.current.find((entry) => entry.id === id); if (found) { telegram.haptic(); select(found); void api.entry(found.id).then(select).catch(() => undefined); } });
     map.on('mouseenter', 'entry-points', () => { map.getCanvas().style.cursor = 'pointer'; }); map.on('mouseleave', 'entry-points', () => { map.getCanvas().style.cursor = ''; });
     mapRef.current = map;
     return () => { locationMarkerRef.current?.remove(); locationMarkerRef.current = null; friendMarkersRef.current.forEach((marker) => marker.remove()); friendMarkersRef.current.clear(); storyMarkersRef.current.forEach((marker) => marker.remove()); storyMarkersRef.current.clear(); map.remove(); mapRef.current = null; };

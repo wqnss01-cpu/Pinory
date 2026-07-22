@@ -145,7 +145,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/auth/logout', { preHandler: requireUser }, async () => ({ ok: true }));
   app.get('/auth/me', { preHandler: requireUser }, async (request, reply) => {
-    const result = await pool.query('SELECT * FROM users WHERE id=$1 AND is_blocked=false', [request.user.sub]);
+    const result = await pool.query('SELECT *,ST_Y(home_location::geometry) home_lat,ST_X(home_location::geometry) home_lng FROM users WHERE id=$1 AND is_blocked=false', [request.user.sub]);
     if (!result.rows[0]) return reply.code(404).send({ code: 'USER_NOT_FOUND', message: 'Пользователь не найден' });
     return serializeUser(result.rows[0]);
   });

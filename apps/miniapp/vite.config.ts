@@ -14,5 +14,5 @@ export default defineConfig(({ mode }) => ({
     },
   },
   server: { port: 5173 },
-  build: { target: 'es2022', sourcemap: mode !== 'production' },
+  build: { target: 'es2022', sourcemap: mode !== 'production', cssCodeSplit: true, rollupOptions: { output: { manualChunks(id) { if (id.includes('maplibre-gl')) return 'map-engine'; if (id.includes('qrcode')) return 'qr-export'; if (id.includes('motion')) return 'motion'; if (id.includes('@tanstack')) return 'data-query'; if (id.includes('react')) return 'react-runtime'; return undefined; } } } },
 }));

@@ -13,6 +13,7 @@ import { LocationPresenceTracker } from './components/LocationPresenceTracker';
 import './stories.css';
 
 const Onboarding = lazy(() => import('./components/Onboarding').then((module) => ({ default: module.Onboarding })));
+const QuickStart = lazy(() => import('./components/QuickStart').then((module) => ({ default: module.QuickStart })));
 const MapScreen = lazy(() => import('./screens/MapScreen').then((module) => ({ default: module.MapScreen })));
 const FeedScreen = lazy(() => import('./screens/FeedScreen').then((module) => ({ default: module.FeedScreen })));
 const SearchScreen = lazy(() => import('./screens/SearchScreen').then((module) => ({ default: module.SearchScreen })));
@@ -46,6 +47,8 @@ export function App() {
   const storyUserId = useAppStore((state) => state.storyUserId);
   const storyEntryId = useAppStore((state) => state.storyEntryId);
   const selectEntry = useAppStore((state) => state.select);
+  const selectCollection = useAppStore((state) => state.selectCollection);
+  const openProfile = useAppStore((state) => state.openProfile);
   const openedEntry = useRef(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [nativeLoginPending, setNativeLoginPending] = useState(false);
@@ -83,11 +86,11 @@ export function App() {
 
   useEffect(() => {
     if (!auth.data?.isOnboardingCompleted || openedEntry.current) return;
-    const entryId = new URLSearchParams(location.search).get('entry');
-    if (!entryId || !/^[0-9a-f-]{36}$/i.test(entryId)) return;
-    openedEntry.current = true;
-    void api.entry(entryId).then(selectEntry).catch(() => undefined);
-  }, [auth.data?.isOnboardingCompleted, selectEntry]);
+    const params = new URLSearchParams(location.search); const entryId=params.get('entry'); const collection=params.get('collection'); const profile=params.get('profile')??params.get('compare');
+    if(entryId&&/^[0-9a-f-]{36}$/i.test(entryId)){openedEntry.current=true;void api.entry(entryId).then(selectEntry).catch(()=>undefined);return}
+    if(collection&&/^[0-9a-f-]{36}$/i.test(collection)){openedEntry.current=true;selectCollection(collection);return}
+    if(profile&&/^[0-9a-f-]{36}$/i.test(profile)){openedEntry.current=true;openProfile(profile)}
+  }, [auth.data?.isOnboardingCompleted, openProfile, selectCollection, selectEntry]);
 
   if (auth.isLoading) return <div className="splash"><Logo large /><div className="splash-orbit"><i /><i /><i /></div><p>{t.loading}</p></div>;
   if (auth.isError || !auth.data) {
@@ -116,6 +119,7 @@ export function App() {
     return <div className="error-page"><Logo /><div className="telegram-gate"><Send /></div><h1>Откройте Pinory в Telegram</h1><p>Для входа нужна защищённая сессия Telegram Mini App.</p><button className="primary" onClick={() => auth.refetch()}>{t.retry}</button></div>;
   }
   if (!auth.data.isOnboardingCompleted) return <Suspense fallback={<Loader />}><Onboarding onDone={async () => { const user = await api.updateMe({ isOnboardingCompleted: true }); queryClient.setQueryData(['me'], user); }} /></Suspense>;
+  if (auth.data.quickStartCompleted === false) return <Suspense fallback={<Loader />}><QuickStart userId={auth.data.id} onDone={async () => { const user = await api.updateMe({ quickStartCompleted: true }); queryClient.setQueryData(['me'], user); }} /></Suspense>;
 
   return <div className="app-shell"><LocationPresenceTracker />{!online && <div className="offline"><WifiOff size={15} />{t.offline}</div>}<main className="screen-stage"><Suspense fallback={<Loader />}><AnimatePresence mode="wait" initial={false}><motion.div className="screen-motion" key={screen} initial={{ opacity: 0, y: 8, scale: .995 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: .22, ease: [.2, .8, .2, 1] }}>{screen === 'map' && <MapScreen />}{screen === 'feed' && <FeedScreen />}{screen === 'search' && <SearchScreen />}{screen === 'profile' && <ProfileScreen me={auth.data as User} />}</motion.div></AnimatePresence></Suspense></main><BottomNav screen={screen} /><Suspense fallback={null}><AnimatePresence>{addOpen && <AddEntrySheet />}{selected && <EntrySheet entry={selected} />}{collectionId && <CollectionSheet id={collectionId} />}{notificationsOpen && <NotificationsSheet />}{storyUserId && <StoryViewer userId={storyUserId} initialEntryId={storyEntryId} />}</AnimatePresence></Suspense></div>;
 }

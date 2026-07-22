@@ -81,15 +81,25 @@ export interface CollectionSummary { id: string; userId: string; title: string; 
 export interface CollectionDetail extends CollectionSummary { entries: MapEntry[] }
 export type ConnectionKind = 'followers' | 'following' | 'friends';
 export interface FriendLocation { id: string; displayName: string; avatarUrl: string | null; telegramUsername: string | null; coordinates: { lat: number; lng: number }; accuracy: number | null; recordedAt: string; isLive: boolean }
-export interface Achievement { code: string; title: string; description: string; icon: string; xp: number; progress: number; target: number; unlockedAt: string | null }
-export interface AchievementsResponse { level: number; totalXp: number; levelXp: number; nextLevelXp: number; achievements: Achievement[] }
+export interface Achievement { code: string; title: string; description: string; icon: string; xp: number; tier?: number; progress: number; target: number; unlockedAt: string | null }
+export interface AchievementsResponse { level: number; levelTitle: string; totalXp: number; levelXp: number; nextLevelXp: number; achievements: Achievement[] }
+export interface AtlasSummary { places:number;cities:number;countries:number;distance_km:number;favorite_category:string|null;favorite_count:number|null;farthest:{id:string;name:string;distance_km:number}|null;homeCity:string|null;year:number|null;month:number|null;onThisDay:MapEntry[] }
+export interface ComparePlace { id:string;name:string;city:string|null;countryName:string|null;coordinates:{lat:number;lng:number} }
+export interface TravelComparison { commonVisited:ComparePlace[];onlyMine:ComparePlace[];onlyTheirs:ComparePlace[];commonWishlist:ComparePlace[];together:ComparePlace[] }
+export interface EntrySocial { counts:Record<string,number>;mine:string[];companions:{userId:string;status:string;displayName:string;avatarUrl:string|null}[];mergeSource:{entryId:string;displayName:string}|null }
+export interface CollectionCollaboration { canEdit:boolean;members:{userId:string;role:string;status:string;displayName:string;avatarUrl:string|null}[];votes:Record<string,{count:number;mine:boolean}>;comments:{id:string;text:string;createdAt:string;author:{id:string;displayName:string;avatarUrl:string|null}}[] }
 
 export const api = {
   me: () => request<User>('/auth/me'),
   user: (id: string) => request<User>(`/users/${id}`),
   updateMe: (data: unknown) => request<User>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
+  privacy: () => request<{showStatistics:boolean;showFollowers:boolean;showFollowing:boolean}>('/users/me/privacy'),
+  updatePrivacy: (showStatistics:boolean) => request<{ok:boolean}>('/users/me/privacy',{method:'PATCH',body:JSON.stringify({showStatistics})}),
   connections: (id: string, kind: ConnectionKind) => request<{ items: User[]; nextCursor: string | null }>(`/users/${id}/${kind}?limit=50`),
   achievements: (id: string) => request<AchievementsResponse>(`/users/${id}/achievements`),
+  atlasSummary: (id: string, year?: number, month?: number) => request<AtlasSummary>(`/users/${id}/atlas-summary?${new URLSearchParams({ ...(year ? { year:String(year) } : {}), ...(month ? { month:String(month) } : {}) })}`),
+  compare: (id: string) => request<TravelComparison>(`/users/${id}/compare`),
+  weeklyPulse: () => request<{friend_places:number;active_friends:number;cities:number;wishlistMatches:number}>('/pulse/weekly'),
   locationStatus: () => request<{ enabled: boolean }>('/locations/me/status'),
   updateLocation: (data: { lat: number; lng: number; accuracy?: number }) => request<{ enabled: boolean; recordedAt: string }>('/locations/me', { method: 'POST', body: JSON.stringify(data) }),
   disableLocation: () => request<void>('/locations/me', { method: 'DELETE' }),
@@ -101,6 +111,12 @@ export const api = {
   deleteEntry: (id: string) => request<void>(`/entries/${id}`, { method: 'DELETE' }),
   entry: (id: string) => request<MapEntry>(`/entries/${id}`),
   viewEntry: (id: string) => request<{ counted: boolean; viewsCount: number }>(`/entries/${id}/view`, { method: 'POST', body: '{}' }),
+  entrySocial: (id:string) => request<EntrySocial>(`/entries/${id}/social`),
+  reactEntry: (id:string,type:'WANT_HERE'|'ALSO_VISITED'|'LIKE') => request<{active:boolean}>(`/entries/${id}/reactions/${type}`,{method:'POST',body:'{}'}),
+  unreactEntry: (id:string,type:'WANT_HERE'|'ALSO_VISITED'|'LIKE') => request<void>(`/entries/${id}/reactions/${type}`,{method:'DELETE'}),
+  inviteCompanion: (id:string,userId:string) => request(`/entries/${id}/companions`,{method:'POST',body:JSON.stringify({userId})}),
+  answerCompanion: (id:string,status:'CONFIRMED'|'DECLINED') => request(`/entries/${id}/companions/me`,{method:'PATCH',body:JSON.stringify({status})}),
+  mergeMemory: (id:string,sourceEntryId:string) => request<{merged:boolean}>(`/entries/${id}/merge`,{method:'POST',body:JSON.stringify({sourceEntryId})}),
   stories: (id: string) => request<{ items: MapEntry[] }>(`/users/${id}/stories`),
   place: (id: string) => request<Place>(`/places/${id}`),
   feed: (kind: 'following' | 'nearby' | 'global') => request<{ items: MapEntry[] }>(`/feed/${kind}`),
@@ -108,6 +124,12 @@ export const api = {
   userCollections: (id: string) => request<{ items: CollectionSummary[] }>(`/users/${id}/collections`),
   userEntries: (id: string) => request<{ items: MapEntry[] }>(`/users/${id}/entries`),
   collection: (id: string) => request<CollectionDetail>(`/collections/${id}`),
+  collectionCollaboration: (id:string) => request<CollectionCollaboration>(`/collections/${id}/collaboration`),
+  inviteCollectionMember: (id:string,userId:string) => request(`/collections/${id}/members`,{method:'POST',body:JSON.stringify({userId})}),
+  answerCollectionInvite: (id:string,status:'ACCEPTED'|'DECLINED') => request(`/collections/${id}/members/me`,{method:'PATCH',body:JSON.stringify({status})}),
+  voteCollectionEntry: (id:string,entryId:string) => request<{active:boolean}>(`/collections/${id}/votes/${entryId}`,{method:'POST',body:'{}'}),
+  commentCollection: (id:string,text:string) => request(`/collections/${id}/comments`,{method:'POST',body:JSON.stringify({text})}),
+  addCollaborativeEntry: (id:string,entryId:string) => request(`/collections/${id}/collaborative-entries`,{method:'POST',body:JSON.stringify({entryId})}),
   followCollection: (id: string) => request<{ following: boolean }>(`/collections/${id}/follow`, { method: 'POST', body: '{}' }),
   unfollowCollection: async (id: string) => { await request<void>(`/collections/${id}/follow`, { method: 'DELETE' }); return { following: false }; },
   collectionToWishlist: (id: string) => request<{ created: number }>(`/collections/${id}/add-all-to-wishlist`, { method: 'POST', body: '{}' }),

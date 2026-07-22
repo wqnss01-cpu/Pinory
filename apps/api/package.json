@@ -1,6 +1,6 @@
 {
   "name": "@pinory/api",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,8 +21,8 @@
     "@fastify/static": "^10.1.0",
     "@fastify/swagger": "^9.5.1",
     "@fastify/swagger-ui": "^5.2.3",
-    "@pinory/config": "1.0.0",
-    "@pinory/shared": "1.0.0",
+    "@pinory/config": "1.1.0",
+    "@pinory/shared": "1.1.0",
     "dotenv": "^17.2.0",
     "fastify": "^5.4.0",
     "grammy": "^1.36.3",

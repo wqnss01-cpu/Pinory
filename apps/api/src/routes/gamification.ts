@@ -1,59 +1,26 @@
-import type { FastifyPluginAsync } from 'fastify';
-import { z } from 'zod';
-import { requireUser } from '../auth.js';
-import { pool } from '../db.js';
-
-const catalog = [
-  { code: 'first_pin', title: 'Первая точка', description: 'Сохранить первое посещённое место', metric: 'visited', target: 1, xp: 80, icon: 'pin' },
-  { code: 'pathfinder', title: 'Следопыт', description: 'Отметить 5 посещённых мест', metric: 'visited', target: 5, xp: 120, icon: 'compass' },
-  { code: 'atlas_keeper', title: 'Хранитель атласа', description: 'Отметить 20 посещённых мест', metric: 'visited', target: 20, xp: 220, icon: 'map' },
-  { code: 'dream_collector', title: 'Коллекционер мечт', description: 'Добавить 10 мест в желания', metric: 'wishlist', target: 10, xp: 130, icon: 'sparkles' },
-  { code: 'storyteller', title: 'Рассказчик', description: 'Написать истории к 3 местам', metric: 'stories', target: 3, xp: 140, icon: 'feather' },
-  { code: 'photographer', title: 'Ловец света', description: 'Добавить 5 фотографий', metric: 'photos', target: 5, xp: 150, icon: 'camera' },
-  { code: 'good_company', title: 'В хорошей компании', description: 'Найти 3 взаимных друзей', metric: 'friends', target: 3, xp: 160, icon: 'users' },
-  { code: 'curator', title: 'Куратор маршрутов', description: 'Создать 3 подборки', metric: 'collections', target: 3, xp: 150, icon: 'layers' },
-  { code: 'city_hopper', title: 'Между городами', description: 'Сохранить места в 3 городах', metric: 'cities', target: 3, xp: 180, icon: 'route' },
-] as const;
-
-export const gamificationRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/users/:id/achievements', { preHandler: requireUser }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const metricsResult = await pool.query(
-      `SELECT u.id,
-        (SELECT count(*) FROM map_entries e WHERE e.user_id=u.id AND e.entry_type='VISITED' AND e.deleted_at IS NULL)::int visited,
-        (SELECT count(*) FROM map_entries e WHERE e.user_id=u.id AND e.entry_type='WISHLIST' AND e.deleted_at IS NULL)::int wishlist,
-        (SELECT count(*) FROM map_entries e WHERE e.user_id=u.id AND e.deleted_at IS NULL AND length(trim(coalesce(e.description,'')))>=20)::int stories,
-        (SELECT count(*) FROM media m WHERE m.owner_user_id=u.id AND m.deleted_at IS NULL)::int photos,
-        (SELECT count(*) FROM follows f WHERE f.follower_id=u.id AND EXISTS(SELECT 1 FROM follows back WHERE back.follower_id=f.following_id AND back.following_id=u.id))::int friends,
-        (SELECT count(*) FROM collections c WHERE c.user_id=u.id AND c.deleted_at IS NULL)::int collections,
-        (SELECT count(DISTINCT p.city) FROM map_entries e JOIN places p ON p.id=e.place_id WHERE e.user_id=u.id AND e.deleted_at IS NULL AND p.city IS NOT NULL)::int cities
-       FROM users u WHERE u.id=$1 AND u.is_blocked=false`,
-      [id],
-    );
-    if (!metricsResult.rows[0]) return reply.code(404).send({ code: 'USER_NOT_FOUND', message: 'Пользователь не найден' });
-    const metrics = metricsResult.rows[0] as Record<string, number | string>;
-    const unlockedCodes = catalog.filter((item) => Number(metrics[item.metric] ?? 0) >= item.target).map((item) => item.code);
-    if (unlockedCodes.length) {
-      await pool.query(
-        `INSERT INTO user_achievements(user_id,achievement_code)
-         SELECT $1,code FROM unnest($2::text[]) code ON CONFLICT DO NOTHING`,
-        [id, unlockedCodes],
-      );
-    }
-    const unlocks = await pool.query('SELECT achievement_code,unlocked_at FROM user_achievements WHERE user_id=$1', [id]);
-    const dates = new Map(unlocks.rows.map((row) => [row.achievement_code as string, new Date(row.unlocked_at).toISOString()]));
-    const achievements = catalog.map((item) => ({
-      code: item.code,
-      title: item.title,
-      description: item.description,
-      icon: item.icon,
-      xp: item.xp,
-      progress: Math.min(Number(metrics[item.metric] ?? 0), item.target),
-      target: item.target,
-      unlockedAt: dates.get(item.code) ?? null,
-    }));
-    const totalXp = achievements.filter((item) => item.unlockedAt).reduce((sum, item) => sum + item.xp, 0);
-    const level = Math.floor(totalXp / 250) + 1;
-    return { level, totalXp, levelXp: totalXp % 250, nextLevelXp: 250, achievements };
-  });
-};
+import type{FastifyPluginAsync}from'fastify';import{z}from'zod';import{requireUser}from'../auth.js';import{pool}from'../db.js';
+type Badge={code:string;title:string;description:string;metric:string;target:number;xp:number;icon:string;tier:number};
+const badge=(code:string,title:string,description:string,metric:string,targets:number[],icon:string,xps:number[]):Badge[]=>targets.map((target,index)=>({code:`${code}_${index+1}`,title,description:description.replace('{n}',String(target)),metric,target,xp:xps[index]??xps.at(-1)!,icon,tier:index+1}));
+const catalog:Badge[]=[
+ ...badge('story_collector','Коллекционер историй','Сохранить {n} мест с содержательной историей','stories',[10,50,100],'book-open',[100,240,420]),
+ ...badge('waterfall_hunter','Охотник за водопадами','Найти {n} водных мест','water',[3,10,25],'waves',[90,190,350]),
+ ...badge('sunset_keeper','Ловец закатов','Сохранить {n} мест с закатами','sunsets',[3,10,25],'sunset',[90,190,350]),
+ ...badge('mountain_path','Выше облаков','Побывать в {n} горных местах','mountains',[3,10,30],'mountain',[100,210,390]),
+ ...badge('sea_soul','Душа моря','Сохранить {n} пляжей и морских мест','sea',[3,10,25],'shell',[90,190,350]),
+ ...badge('food_guide','Гастрономический гид','Добавить {n} кафе и ресторанов','food',[5,20,50],'utensils',[100,230,420]),
+ ...badge('local_expert','Местный эксперт','Открыть {n} мест в одном городе','local',[10,30,75],'landmark',[120,280,500]),
+ ...badge('influencer','Вдохновитель','Ваши места сохранили {n} раз','saves',[5,25,100],'heart',[100,260,520]),
+ {code:'first_explorer_1',title:'Первооткрыватель',description:'Первым добавить место в Pinory',metric:'firsts',target:1,xp:180,icon:'flag',tier:1},
+ {code:'good_company_1',title:'В хорошей компании',description:'Найти 3 взаимных друзей',metric:'friends',target:3,xp:140,icon:'users',tier:1},
+ {code:'curator_1',title:'Куратор маршрутов',description:'Создать 3 полезные подборки',metric:'collections',target:3,xp:160,icon:'layers',tier:1},
+];
+const levels=['Наблюдатель','Путешественник','Исследователь','Следопыт','Картограф','Проводник','Хранитель мест'];
+export const gamificationRoutes:FastifyPluginAsync=async app=>{app.get('/users/:id/achievements',{preHandler:requireUser},async(request,reply)=>{const{id}=z.object({id:z.string().uuid()}).parse(request.params);const result=await pool.query(`WITH mine AS(SELECT e.*,p.city,pc.code category FROM map_entries e JOIN places p ON p.id=e.place_id LEFT JOIN place_categories pc ON pc.id=p.category_id WHERE e.user_id=$1 AND e.deleted_at IS NULL),metrics AS(SELECT
+ count(*) FILTER(WHERE entry_type='VISITED')::int visited,count(*) FILTER(WHERE entry_type='WISHLIST')::int wishlist,count(*) FILTER(WHERE length(trim(coalesce(description,'')))>=40)::int stories,
+ (SELECT count(*) FROM media WHERE owner_user_id=$1 AND deleted_at IS NULL)::int photos,(SELECT count(*) FROM follows f WHERE f.follower_id=$1 AND EXISTS(SELECT 1 FROM follows b WHERE b.follower_id=f.following_id AND b.following_id=$1))::int friends,
+ (SELECT count(*) FROM collections WHERE user_id=$1 AND deleted_at IS NULL)::int collections,count(*) FILTER(WHERE category IN('nature','waterfall','beach'))::int water,count(*) FILTER(WHERE lower(coalesce(description,''))~'закат|рассвет')::int sunsets,
+ count(*) FILTER(WHERE category='mountain')::int mountains,count(*) FILTER(WHERE category='beach')::int sea,count(*) FILTER(WHERE category IN('cafe','restaurant'))::int food,
+ COALESCE((SELECT max(c) FROM(SELECT count(*) c FROM mine WHERE city IS NOT NULL GROUP BY city)x),0)::int local,(SELECT count(*) FROM entry_reactions r JOIN map_entries e ON e.id=r.map_entry_id WHERE e.user_id=$1 AND r.reaction_type='WANT_HERE')::int saves,
+ count(*) FILTER(WHERE created_at=(SELECT min(e2.created_at) FROM map_entries e2 WHERE e2.place_id=mine.place_id AND e2.deleted_at IS NULL))::int firsts,
+ (SELECT count(*) FROM comments WHERE user_id=$1 AND deleted_at IS NULL)::int comments FROM mine)SELECT * FROM metrics`,[id]);if(!result.rows[0])return reply.code(404).send({code:'USER_NOT_FOUND',message:'Пользователь не найден'});const metrics=result.rows[0]as Record<string,number>;const codes=catalog.filter(x=>Number(metrics[x.metric]??0)>=x.target).map(x=>x.code);if(codes.length)await pool.query('INSERT INTO user_achievements(user_id,achievement_code) SELECT $1,unnest($2::text[]) ON CONFLICT DO NOTHING',[id,codes]);const unlocked=await pool.query('SELECT achievement_code,unlocked_at FROM user_achievements WHERE user_id=$1',[id]);const dates=new Map(unlocked.rows.map(r=>[r.achievement_code,new Date(r.unlocked_at).toISOString()]));const achievements=catalog.map(x=>({...x,progress:Math.min(Number(metrics[x.metric]??0),x.target),unlockedAt:dates.get(x.code)??null}));
+ const qualityXp=Number(metrics.visited)*12+Number(metrics.photos)*8+Number(metrics.stories)*18+Number(metrics.comments)*6+Number(metrics.saves)*10+Number(metrics.collections)*20;const badgeXp=achievements.filter(x=>x.unlockedAt).reduce((s,x)=>s+x.xp,0);const totalXp=qualityXp+badgeXp;const thresholds=[0,150,450,900,1600,2600,4000];const levelIndex=thresholds.reduce((last,value,index)=>totalXp>=value?index:last,0);const next=thresholds[levelIndex+1]??thresholds.at(-1)!+1500;return{level:levelIndex+1,levelTitle:levels[levelIndex],totalXp,levelXp:totalXp-thresholds[levelIndex]!,nextLevelXp:next-thresholds[levelIndex]!,achievements};});};

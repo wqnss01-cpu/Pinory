@@ -14,6 +14,7 @@ import './interaction-fixes.css';
 import './layout-fixes.css';
 import './dark-theme.css';
 import './native.css';
+import './atlas-update.css';
 import { App } from './App';
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 2, refetchOnWindowFocus: false, gcTime: 10 * 60_000 } } });

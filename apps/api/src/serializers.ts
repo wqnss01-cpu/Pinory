@@ -1,5 +1,5 @@
 export function serializeUser(row: any, withStats = false) {
-  const user: any = { id: row.id, telegramUserId: String(row.telegram_user_id), telegramUsername: row.telegram_username, displayName: row.display_name, bio: row.bio, avatarUrl: row.avatar_url, homeCity: row.home_city, isOnboardingCompleted: row.is_onboarding_completed, isFollowing: row.is_following, isFriend: row.is_friend };
+  const user: any = { id: row.id, telegramUserId: String(row.telegram_user_id), telegramUsername: row.telegram_username, displayName: row.display_name, bio: row.bio, avatarUrl: row.avatar_url, homeCity: row.home_city, homeCoordinates: row.home_lat == null ? null : { lat: Number(row.home_lat), lng: Number(row.home_lng) }, isOnboardingCompleted: row.is_onboarding_completed, quickStartCompleted: row.quick_start_completed, isFollowing: row.is_following, isFriend: row.is_friend };
   if (withStats) user.stats = { followers: Number(row.followers_count ?? 0), following: Number(row.following_count ?? 0), friends: Number(row.friends_count ?? 0), visited: Number(row.visited_count ?? 0), wishlist: Number(row.wishlist_count ?? 0), collections: Number(row.collections_count ?? 0) };
   return user;
 }

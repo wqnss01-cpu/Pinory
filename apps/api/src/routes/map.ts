@@ -33,8 +33,8 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
     values.push(types); where.push(`(e.entry_type='STORY' OR e.entry_type=ANY($${values.length}::entry_type[]))`);
     if (categories.length) { values.push(categories); where.push(`pc.code=ANY($${values.length})`); }
     if (userIds.length) { values.push(userIds); where.push(`e.user_id=ANY($${values.length}::uuid[])`); }
-    const result = await pool.query(`${entrySelect} WHERE ${where.join(' AND ')} ORDER BY e.created_at DESC LIMIT 500`, values);
-    return { items: result.rows.map(serializeEntry), meta: { bounded: true, zoom: q.zoom, count: result.rowCount } };
+    const result = await pool.query(`${entrySelect} WHERE ${where.join(' AND ')} ORDER BY e.created_at DESC LIMIT 350`, values);
+    return { items: result.rows.map(serializeEntry).map((entry) => ({ ...entry, description: null, media: entry.media.slice(0, 1) })), meta: { bounded: true, zoom: q.zoom, count: result.rowCount } };
   });
 
   app.get('/map/clusters', { preHandler: requireUser }, async (request) => {

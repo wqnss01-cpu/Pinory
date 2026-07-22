@@ -3,7 +3,13 @@ import { Bot, InlineKeyboard, webhookCallback } from 'grammy';
 import { z } from 'zod';
 import { requireUser } from './auth.js';
 import { env } from './env.js';
+import { pool } from './db.js';
 import { buildStartMessage, buildTelegramBotLink, parseTelegramStartPayload, PINORY_GUIDE } from './services/telegram-links.js';
+
+async function sendWeeklyDigests(bot: Bot, appUrl: string) {
+  const users=await pool.query(`SELECT u.id,u.telegram_user_id,activity.places FROM users u JOIN user_settings s ON s.user_id=u.id AND s.telegram_notifications_enabled=true JOIN LATERAL(SELECT count(*)::int places FROM map_entries e JOIN follows f ON f.following_id=e.user_id AND f.follower_id=u.id WHERE e.deleted_at IS NULL AND e.created_at>now()-interval '7 days' AND EXISTS(SELECT 1 FROM follows b WHERE b.follower_id=e.user_id AND b.following_id=u.id))activity ON activity.places>0 WHERE (u.weekly_digest_sent_at IS NULL OR u.weekly_digest_sent_at<now()-interval '7 days') ORDER BY u.weekly_digest_sent_at NULLS FIRST LIMIT 50`);
+  for(const user of users.rows){await bot.api.sendMessage(String(user.telegram_user_id),`🗺️ Ваши друзья добавили ${user.places} мест за неделю. Загляните — возможно, среди них есть ваш следующий маршрут.`,{reply_markup:new InlineKeyboard().webApp('Открыть недельный обзор',`${appUrl}/?pulse=week`)}).catch(()=>undefined);await pool.query('UPDATE users SET weekly_digest_sent_at=now() WHERE id=$1',[user.id])}
+}
 
 function withTrailingSlash(value: string) {
   return value.endsWith('/') ? value : `${value}/`;
@@ -68,6 +74,8 @@ export async function registerTelegramBot(app: FastifyInstance) {
         menu_button: { type: 'web_app', text: 'Открыть Pinory', web_app: { url: appUrl } },
       });
       app.log.info({ webhookUrl }, 'Telegram webhook and menu button configured');
+      setTimeout(() => void sendWeeklyDigests(bot, appUrl), 15_000).unref();
+      setInterval(() => void sendWeeklyDigests(bot, appUrl), 6 * 60 * 60 * 1000).unref();
     } catch (error) {
       app.log.error({ error }, 'Telegram webhook configuration failed');
     }

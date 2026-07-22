@@ -9,6 +9,12 @@ describe('Telegram deep links', () => {
     });
   });
 
+  it('routes collections, profiles and comparisons to their exact target', () => {
+    const id = 'a5591727-9a9f-42f8-9fcd-41cc0db9c0c2';
+    expect(parseTelegramStartPayload(`collection_${id}`).appPath).toBe(`?collection=${id}`);
+    expect(parseTelegramStartPayload(`profile_${id}`).appPath).toBe(`?profile=${id}`);
+    expect(parseTelegramStartPayload(`compare_${id}`).appPath).toBe(`?compare=${id}`);
+  });
   it('preserves a valid referral parameter', () => {
     expect(parseTelegramStartPayload('ref_9faf84c0-f9e')).toMatchObject({
       appPath: '?ref=ref_9faf84c0-f9e',

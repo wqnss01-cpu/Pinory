@@ -23,6 +23,9 @@ import { adminRoutes } from './routes/admin.js';
 import { registerTelegramBot } from './telegram-bot.js';
 import { presenceRoutes } from './routes/presence.js';
 import { gamificationRoutes } from './routes/gamification.js';
+import { atlasRoutes } from './routes/atlas.js';
+import { interactionRoutes } from './routes/interactions.js';
+import { collectionCollaborationRoutes } from './routes/collection-collaboration.js';
 
 const app = Fastify({
   logger: { level: env.NODE_ENV === 'production' ? 'info' : 'debug' },
@@ -73,6 +76,9 @@ await app.register(async (api) => {
   await api.register(adminRoutes);
   await api.register(presenceRoutes);
   await api.register(gamificationRoutes);
+  await api.register(atlasRoutes);
+  await api.register(interactionRoutes);
+  await api.register(collectionCollaborationRoutes);
   await registerTelegramBot(api);
 }, { prefix: '/api/v1' });
 
