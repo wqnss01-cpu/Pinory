@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
-import { Map, Compass, Plus, Search, UserRound, WifiOff, Send } from 'lucide-react';
+import { Map, Compass, Plus, Search, UserRound, WifiOff, Send, LoaderCircle, ShieldCheck } from 'lucide-react';
 import type { User } from '@pinory/shared';
 import { api, authenticate } from './lib/api';
+import { beginNativeTelegramLogin, isNativeApp, listenForNativeTelegramAuth } from './lib/native-auth';
 import { telegram } from './lib/telegram';
 import { t } from './i18n/ru';
 import { useAppStore, type Screen } from './store';
@@ -22,7 +23,17 @@ const CollectionSheet = lazy(() => import('./components/CollectionSheet').then((
 const NotificationsSheet = lazy(() => import('./components/NotificationsSheet').then((module) => ({ default: module.NotificationsSheet })));
 const StoryViewer = lazy(() => import('./components/StoryViewer').then((module) => ({ default: module.StoryViewer })));
 
-async function bootstrap() { const referral = telegram.startParam?.startsWith('ref_') || new URLSearchParams(location.search).has('ref'); if (referral) return authenticate(); try { return await api.me(); } catch { return authenticate(); } }
+async function bootstrap() {
+  const referral = telegram.startParam?.startsWith('ref_') || new URLSearchParams(location.search).has('ref');
+  if (referral && !isNativeApp) return authenticate();
+  try {
+    return await api.me();
+  } catch (error) {
+    if (isNativeApp) throw error;
+    return authenticate();
+  }
+}
+
 const Loader = () => <div className="screen-loader"><i /></div>;
 
 export function App() {
@@ -37,17 +48,38 @@ export function App() {
   const selectEntry = useAppStore((state) => state.select);
   const openedEntry = useRef(false);
   const [online, setOnline] = useState(navigator.onLine);
-  const auth = useQuery({ queryKey: ['me'], queryFn: bootstrap, retry: 1 });
+  const [nativeLoginPending, setNativeLoginPending] = useState(false);
+  const [nativeLoginError, setNativeLoginError] = useState<string | null>(null);
+  const auth = useQuery({ queryKey: ['me'], queryFn: bootstrap, retry: isNativeApp ? 0 : 1 });
 
   useEffect(() => {
     telegram.ready();
     const applyTheme = (theme: 'light' | 'dark') => { document.documentElement.dataset.theme = theme; };
     applyTheme(telegram.theme);
     const unsubscribeTheme = telegram.onThemeChange(applyTheme);
-    const on = () => setOnline(true); const off = () => setOnline(false);
-    addEventListener('online', on); addEventListener('offline', off);
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    addEventListener('online', on);
+    addEventListener('offline', off);
     return () => { unsubscribeTheme(); removeEventListener('online', on); removeEventListener('offline', off); };
   }, []);
+
+  useEffect(() => {
+    if (!isNativeApp) return;
+    let dispose: (() => void) | undefined;
+    void listenForNativeTelegramAuth({
+      onSuccess: (user) => {
+        setNativeLoginPending(false);
+        setNativeLoginError(null);
+        queryClient.setQueryData(['me'], user);
+      },
+      onError: (message) => {
+        setNativeLoginPending(false);
+        setNativeLoginError(message);
+      },
+    }).then((cleanup) => { dispose = cleanup; });
+    return () => dispose?.();
+  }, [queryClient]);
 
   useEffect(() => {
     if (!auth.data?.isOnboardingCompleted || openedEntry.current) return;
@@ -58,14 +90,39 @@ export function App() {
   }, [auth.data?.isOnboardingCompleted, selectEntry]);
 
   if (auth.isLoading) return <div className="splash"><Logo large /><div className="splash-orbit"><i /><i /><i /></div><p>{t.loading}</p></div>;
-  if (auth.isError || !auth.data) return <div className="error-page"><Logo /><div className="telegram-gate"><Send /></div><h1>Откройте Pinory в Telegram</h1><p>Для входа нужна защищённая сессия Telegram Mini App.</p><button className="primary" onClick={() => auth.refetch()}>{t.retry}</button></div>;
+  if (auth.isError || !auth.data) {
+    if (isNativeApp) return <div className="error-page native-login-page">
+      <Logo large />
+      <div className="native-login-orbit"><span><Send /></span><i /><i /></div>
+      <h1>Вся карта — с вами</h1>
+      <p>Войдите через Telegram, чтобы открыть свои места, друзей, подборки и истории.</p>
+      {nativeLoginError && <div className="native-login-error">{nativeLoginError}</div>}
+      <button className="primary native-login-button" disabled={nativeLoginPending} onClick={async () => {
+        setNativeLoginPending(true);
+        setNativeLoginError(null);
+        try {
+          await beginNativeTelegramLogin();
+          window.setTimeout(() => setNativeLoginPending(false), 1800);
+        } catch (error) {
+          setNativeLoginPending(false);
+          setNativeLoginError((error as Error).message);
+        }
+      }}>
+        {nativeLoginPending ? <LoaderCircle className="spin-icon" /> : <Send />}
+        {nativeLoginPending ? 'Открываю Telegram…' : 'Войти через Telegram'}
+      </button>
+      <small><ShieldCheck /> Пароль и данные Telegram не передаются Pinory</small>
+    </div>;
+    return <div className="error-page"><Logo /><div className="telegram-gate"><Send /></div><h1>Откройте Pinory в Telegram</h1><p>Для входа нужна защищённая сессия Telegram Mini App.</p><button className="primary" onClick={() => auth.refetch()}>{t.retry}</button></div>;
+  }
   if (!auth.data.isOnboardingCompleted) return <Suspense fallback={<Loader />}><Onboarding onDone={async () => { const user = await api.updateMe({ isOnboardingCompleted: true }); queryClient.setQueryData(['me'], user); }} /></Suspense>;
 
   return <div className="app-shell"><LocationPresenceTracker />{!online && <div className="offline"><WifiOff size={15} />{t.offline}</div>}<main className="screen-stage"><Suspense fallback={<Loader />}><AnimatePresence mode="wait" initial={false}><motion.div className="screen-motion" key={screen} initial={{ opacity: 0, y: 8, scale: .995 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: .22, ease: [.2, .8, .2, 1] }}>{screen === 'map' && <MapScreen />}{screen === 'feed' && <FeedScreen />}{screen === 'search' && <SearchScreen />}{screen === 'profile' && <ProfileScreen me={auth.data as User} />}</motion.div></AnimatePresence></Suspense></main><BottomNav screen={screen} /><Suspense fallback={null}><AnimatePresence>{addOpen && <AddEntrySheet />}{selected && <EntrySheet entry={selected} />}{collectionId && <CollectionSheet id={collectionId} />}{notificationsOpen && <NotificationsSheet />}{storyUserId && <StoryViewer userId={storyUserId} initialEntryId={storyEntryId} />}</AnimatePresence></Suspense></div>;
 }
 
 function BottomNav({ screen }: { screen: Screen }) {
-  const setScreen = useAppStore((state) => state.setScreen); const setAddOpen = useAppStore((state) => state.setAddOpen);
+  const setScreen = useAppStore((state) => state.setScreen);
+  const setAddOpen = useAppStore((state) => state.setAddOpen);
   const items = [['map', Map, t.nav.map], ['feed', Compass, t.nav.feed], ['add', Plus, t.nav.add], ['search', Search, t.nav.search], ['profile', UserRound, t.nav.profile]] as const;
   return <nav className="bottom-nav" aria-label="Основная навигация">{items.map(([id, Icon, label]) => id === 'add' ? <motion.button whileTap={{ scale: .9 }} key={id} className="nav-add" onClick={() => { telegram.haptic('medium'); setAddOpen(true); }} aria-label={label}><span><Icon size={27} /></span><small>{label}</small></motion.button> : <motion.button whileTap={{ scale: .9 }} key={id} className={screen === id ? 'active' : ''} onClick={() => { telegram.haptic(); setScreen(id); }}><Icon size={21} /><small>{label}</small></motion.button>)}</nav>;
 }

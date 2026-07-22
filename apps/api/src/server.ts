@@ -32,6 +32,7 @@ const app = Fastify({
 
 const productionOrigins = new Set([
   ...env.CORS_ORIGINS.split(',').map((value) => value.trim()).filter(Boolean),
+  ...env.MOBILE_APP_ORIGINS.split(',').map((value) => value.trim()).filter(Boolean),
   ...(env.TELEGRAM_MINI_APP_URL ? [new URL(env.TELEGRAM_MINI_APP_URL).origin] : []),
 ]);
 

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pinory</string>
+    <string name="title_activity_main">Pinory</string>
+    <string name="package_name">app.pinory.mobile</string>
+    <string name="custom_url_scheme">app.pinory.mobile</string>
+</resources>

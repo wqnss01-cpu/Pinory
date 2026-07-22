@@ -1,12 +1,48 @@
 import type { AuthResponse, CreateEntryInput, MapEntry, Place, User } from '@pinory/shared';
-import { telegram } from '../lib/telegram';
+import { telegram } from './telegram';
 
-const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '/api/v1' : 'http://localhost:4000/api/v1');
+export const apiBase = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '/api/v1' : 'http://localhost:4000/api/v1');
 let token = localStorage.getItem('pinory.access');
+let refreshPromise: Promise<string | null> | null = null;
 
-async function request<T>(path: string, options: RequestInit = {}) {
+function saveSession(data: AuthResponse) {
+  token = data.accessToken;
+  localStorage.setItem('pinory.access', data.accessToken);
+  localStorage.setItem('pinory.refresh', data.refreshToken);
+  return data.user;
+}
+
+function clearSession() {
+  token = null;
+  localStorage.removeItem('pinory.access');
+  localStorage.removeItem('pinory.refresh');
+}
+
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem('pinory.refresh');
+  if (!refreshToken) return null;
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${apiBase}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        clearSession();
+        return null;
+      }
+      const data = await response.json() as { accessToken: string };
+      token = data.accessToken;
+      localStorage.setItem('pinory.access', data.accessToken);
+      return data.accessToken;
+    }).catch(() => null).finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
+async function request<T>(path: string, options: RequestInit = {}, canRefresh = true): Promise<T> {
   const hasJsonBody = options.body !== undefined && !(options.body instanceof FormData);
-  const response = await fetch(`${base}${path}`, {
+  const response = await fetch(`${apiBase}${path}`, {
     ...options,
     headers: {
       ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
@@ -14,6 +50,9 @@ async function request<T>(path: string, options: RequestInit = {}) {
       ...options.headers,
     },
   });
+  if (response.status === 401 && canRefresh && path !== '/auth/refresh' && await refreshAccessToken()) {
+    return request<T>(path, options, false);
+  }
   if (response.status === 204) return undefined as T;
   const data = await response.json().catch(() => ({ message: 'Сервис временно недоступен' }));
   if (!response.ok) throw new Error(data.message ?? 'Ошибка запроса');
@@ -26,10 +65,15 @@ export async function authenticate() {
     method: 'POST',
     body: JSON.stringify({ initData: telegram.initData, referral: telegram.startParam ?? params.get('ref') ?? undefined }),
   });
-  token = data.accessToken;
-  localStorage.setItem('pinory.access', token);
-  localStorage.setItem('pinory.refresh', data.refreshToken);
-  return data.user;
+  return saveSession(data);
+}
+
+export async function authenticateMobileGrant(grant: string) {
+  const data = await request<AuthResponse>('/auth/telegram/mobile/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ grant }),
+  }, false);
+  return saveSession(data);
 }
 
 export interface GeocodeResult { id: string; name: string; address: string; city: string | null; countryName: string | null; categoryCode: string; coordinates: { lat: number; lng: number } }

@@ -1,5 +1,24 @@
 {
-  "name":"pinory","private":true,"version":"1.0.0","type":"module","workspaces":["apps/*","packages/*"],
-  "scripts":{"dev":"concurrently -n api,miniapp -c yellow,cyan \"npm run dev -w @pinory/api\" \"npm run dev -w @pinory/miniapp\"","dev:all":"concurrently -n api,miniapp,bot -c yellow,cyan,magenta \"npm run dev -w @pinory/api\" \"npm run dev -w @pinory/miniapp\" \"npm run dev -w @pinory/bot\"","build":"npm run build -w @pinory/shared && npm run build -w @pinory/config && npm run build -w @pinory/api && npm run build -w @pinory/bot && npm run build -w @pinory/miniapp","test":"npm run test -ws --if-present","lint":"eslint . --max-warnings=0","db:migrate":"npm run db:migrate -w @pinory/api","db:seed":"npm run db:seed -w @pinory/api","db:clear-content":"npm run db:clear-content -w @pinory/api"},
-  "devDependencies":{"@eslint/js":"^9.31.0","concurrently":"^9.2.0","eslint":"^9.31.0","typescript-eslint":"^8.38.0"}
+  "name": "pinory",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -n api,miniapp -c yellow,cyan \"npm run dev -w @pinory/api\" \"npm run dev -w @pinory/miniapp\"",
+    "dev:all": "concurrently -n api,miniapp,bot -c yellow,cyan,magenta \"npm run dev -w @pinory/api\" \"npm run dev -w @pinory/miniapp\" \"npm run dev -w @pinory/bot\"",
+    "build": "npm run build -w @pinory/shared && npm run build -w @pinory/config && npm run build -w @pinory/api && npm run build -w @pinory/bot && npm run build -w @pinory/miniapp",
+    "build:android": "npm run android:sync -w @pinory/miniapp",
+    "test": "npm run test -ws --if-present",
+    "lint": "eslint . --max-warnings=0",
+    "db:migrate": "npm run db:migrate -w @pinory/api",
+    "db:seed": "npm run db:seed -w @pinory/api",
+    "db:clear-content": "npm run db:clear-content -w @pinory/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "concurrently": "^9.2.0",
+    "eslint": "^9.31.0",
+    "typescript-eslint": "^8.38.0"
+  }
 }
