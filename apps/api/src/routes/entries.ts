@@ -45,7 +45,7 @@ export const entryRoutes: FastifyPluginAsync = async (app) => {
         }
       }
       const inserted = await client.query(`INSERT INTO map_entries(user_id,place_id,entry_type,title,description,visit_date,visibility,marker_icon_id,comments_enabled,expires_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,(SELECT id FROM marker_icons WHERE code=$8),$9,CASE WHEN $3='STORY' THEN now()+interval '24 hours' ELSE NULL END) RETURNING id`,
+        VALUES($1,$2,$3::entry_type,$4,$5,$6,$7,(SELECT id FROM marker_icons WHERE code=$8),$9,CASE WHEN $3::entry_type='STORY' THEN now()+interval '24 hours' ELSE NULL END) RETURNING id`,
         [request.user.sub,placeId,input.entryType,input.title,input.description??null,input.visitDate??null,input.visibility,input.markerIconCode,input.entryType==='STORY'?false:input.commentsEnabled]);
       for (let i=0;i<input.collectionIds.length;i++) await client.query(`INSERT INTO collection_entries(collection_id,map_entry_id,sort_order) SELECT $1,$2,$3 FROM collections WHERE id=$1 AND user_id=$4 AND deleted_at IS NULL ON CONFLICT DO NOTHING`, [input.collectionIds[i],inserted.rows[0].id,i,request.user.sub]);
       await client.query(`INSERT INTO analytics_events(user_id,name,properties) VALUES($1,$2,$3)`, [request.user.sub,input.entryType==='STORY'?'story_created':input.entryType==='WISHLIST'?'wishlist_created':'entry_created',JSON.stringify({ placeId })]);
@@ -65,9 +65,9 @@ export const entryRoutes: FastifyPluginAsync = async (app) => {
     const current = await pool.query('SELECT * FROM map_entries WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL', [id,request.user.sub]);
     if (!current.rows[0]) return reply.code(404).send({ code: 'ENTRY_NOT_FOUND', message: 'Отметка не найдена' });
     const next = { ...current.rows[0], ...Object.fromEntries(Object.entries(input).map(([k,v]) => [k.replace(/[A-Z]/g,(m)=>`_${m.toLowerCase()}`),v])) };
-    await pool.query(`UPDATE map_entries SET entry_type=$1,title=$2,description=$3,visit_date=$4,visibility=$5,
-      marker_icon_id=(SELECT id FROM marker_icons WHERE code=$6),comments_enabled=CASE WHEN $1='STORY' THEN false ELSE $7 END,
-      expires_at=CASE WHEN $1='STORY' THEN COALESCE(expires_at,now()+interval '24 hours') ELSE NULL END WHERE id=$8`,
+    await pool.query(`UPDATE map_entries SET entry_type=$1::entry_type,title=$2,description=$3,visit_date=$4,visibility=$5,
+      marker_icon_id=(SELECT id FROM marker_icons WHERE code=$6),comments_enabled=CASE WHEN $1::entry_type='STORY' THEN false ELSE $7 END,
+      expires_at=CASE WHEN $1::entry_type='STORY' THEN COALESCE(expires_at,now()+interval '24 hours') ELSE NULL END WHERE id=$8`,
       [next.entry_type,next.title,next.description,next.visit_date,next.visibility,input.markerIconCode??'pin',next.comments_enabled,id]);
     return getVisibleEntry(id,request.user.sub);
   });
