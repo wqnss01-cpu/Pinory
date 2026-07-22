@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { bboxSchema } from '@pinory/shared';
 import { pool } from '../db.js';
 import { requireUser } from '../auth.js';
-import { env } from '../env.js';
+import { reverseGeography, searchGeography } from '../services/geography.js';
 import { entrySelect, serializeEntry, serializePlace } from '../serializers.js';
 
 const mapQuery = z.object({ bbox: bboxSchema, zoom: z.coerce.number().min(0).max(24).default(10), entryTypes: z.string().optional(), categories: z.string().optional(), userIds: z.string().optional(), layers: z.string().default('mine,friends,public') });
@@ -15,14 +15,6 @@ const layerClause = (raw:string) => {
   if(layers.includes('friends')) clauses.push(`(e.user_id<>$1 AND EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$1 AND f.following_id=e.user_id))`);
   if(layers.includes('public')) clauses.push(`(e.user_id<>$1 AND e.visibility='PUBLIC')`);
   return clauses.length?`(${clauses.join(' OR ')})`:'FALSE';
-};
-
-type NominatimResult={lat:string;lon:string;display_name:string;name?:string;type?:string;class?:string;address?:Record<string,string>};
-const categoryFromResult=(item:NominatimResult)=>{
-  const value=`${item.class??''} ${item.type??''}`;
-  if(/cafe|coffee/.test(value))return'cafe';if(/restaurant|food/.test(value))return'restaurant';if(/museum|gallery/.test(value))return'museum';
-  if(/park|garden|nature/.test(value))return'nature';if(/hotel|hostel/.test(value))return'hotel';if(/beach/.test(value))return'beach';
-  if(/mountain|peak/.test(value))return'mountain';if(/viewpoint/.test(value))return'viewpoint';if(/historic|castle|monument|building/.test(value))return'architecture';return'other';
 };
 
 export const mapRoutes: FastifyPluginAsync = async (app) => {
@@ -58,13 +50,8 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/places/geocode', { preHandler: requireUser }, async (request,reply) => {
     const q=z.object({query:z.string().trim().min(3).max(160),limit:z.coerce.number().min(1).max(8).default(6)}).parse(request.query);
-    const url=new URL(env.GEOCODING_URL);url.searchParams.set('q',q.query);url.searchParams.set('format','jsonv2');url.searchParams.set('addressdetails','1');url.searchParams.set('accept-language','ru');url.searchParams.set('limit',String(q.limit));
-    try{
-      const response=await fetch(url,{headers:{'User-Agent':env.GEOCODING_USER_AGENT,Accept:'application/json'},signal:AbortSignal.timeout(8000)});
-      if(!response.ok)throw new Error(`Geocoding ${response.status}`);
-      const items=(await response.json()) as NominatimResult[];
-      return{items:items.map((item,index)=>{const address=item.address??{};const name=item.name??address.amenity??address.tourism??address.road??item.display_name.split(',')[0]??q.query;return{id:`geo-${index}-${item.lat}-${item.lon}`,name,address:item.display_name,city:address.city??address.town??address.village??address.municipality??null,countryName:address.country??null,categoryCode:categoryFromResult(item),coordinates:{lat:Number(item.lat),lng:Number(item.lon)}};})};
-    }catch(error){request.log.warn({error},'geocoding unavailable');return reply.code(502).send({code:'GEOCODING_UNAVAILABLE',message:'Поиск адреса временно недоступен. Выберите точку на карте.'});}
+    try{return{items:await searchGeography(q.query,q.limit)}}
+    catch(error){request.log.warn({error},'geocoding unavailable');return reply.code(502).send({code:'GEOCODING_UNAVAILABLE',message:'Поиск адреса временно недоступен. Выберите точку на карте.'})}
   });
 
   app.get('/places/search', { preHandler: requireUser }, async (request) => {
@@ -96,9 +83,11 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/places', { preHandler: requireUser }, async (request) => {
     const { CreatePlaceSchema } = await import('@pinory/shared'); const input = CreatePlaceSchema.parse(request.body);
-    const result = await pool.query(`INSERT INTO places(name,normalized_name,category_id,location,city,country_name,address,created_by_user_id)
-      VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8)
-      RETURNING *,ST_Y(location::geometry) lat,ST_X(location::geometry) lng`, [input.name,input.categoryCode,input.coordinates.lng,input.coordinates.lat,input.city??null,input.countryName??null,input.address??null,request.user.sub]);
-    return serializePlace({ ...result.rows[0], category_code: input.categoryCode, category_name: input.categoryCode });
+    let place=input;
+    if(!place.countryCode||!place.countryName){try{const geo=await reverseGeography(place.coordinates);place={...place,city:geo.city??undefined,region:geo.region??undefined,countryName:geo.countryName??undefined,countryCode:geo.countryCode??undefined,address:place.address??geo.address}}catch(error){request.log.warn({error},'place geography resolution failed')}}
+    const result = await pool.query(`INSERT INTO places(name,normalized_name,category_id,location,city,region,country_name,country_code,address,created_by_user_id,geography_checked_at)
+      VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8,$9,$10,CASE WHEN $8 IS NOT NULL THEN now() ELSE NULL END)
+      RETURNING *,ST_Y(location::geometry) lat,ST_X(location::geometry) lng`, [place.name,place.categoryCode,place.coordinates.lng,place.coordinates.lat,place.city??null,place.region??null,place.countryName??null,place.countryCode??null,place.address??null,request.user.sub]);
+    return serializePlace({ ...result.rows[0], category_code: place.categoryCode, category_name: place.categoryCode });
   });
 };

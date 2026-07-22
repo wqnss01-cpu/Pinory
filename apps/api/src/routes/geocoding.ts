@@ -1,56 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { requireUser } from '../auth.js';
-import { env } from '../env.js';
+import { pool } from '../db.js';
+import { reverseGeography, searchGeography } from '../services/geography.js';
 
-type ProviderResult = {
-  lat: string;
-  lon: string;
-  display_name: string;
-  name?: string;
-  type?: string;
-  class?: string;
-  address?: Record<string, string>;
-};
-
-type GeocodeItem = {
-  id: string;
-  name: string;
-  address: string;
-  city: string | null;
-  countryName: string | null;
-  categoryCode: string;
-  coordinates: { lat: number; lng: number };
-};
-
-const cache = new Map<string, { expiresAt: number; items: GeocodeItem[] }>();
-let providerQueue: Promise<void> = Promise.resolve();
-let nextProviderRequestAt = 0;
-
-const category = (item: ProviderResult) => {
-  const value = `${item.class ?? ''} ${item.type ?? ''}`;
-  if (/cafe|coffee/.test(value)) return 'cafe';
-  if (/restaurant|food/.test(value)) return 'restaurant';
-  if (/museum|gallery/.test(value)) return 'museum';
-  if (/park|garden|nature/.test(value)) return 'nature';
-  if (/hotel|hostel/.test(value)) return 'hotel';
-  if (/beach/.test(value)) return 'beach';
-  if (/mountain|peak/.test(value)) return 'mountain';
-  if (/viewpoint/.test(value)) return 'viewpoint';
-  if (/historic|castle|monument|building/.test(value)) return 'architecture';
-  return 'other';
-};
-
-function scheduleProviderRequest<T>(task: () => Promise<T>): Promise<T> {
-  const result = providerQueue.then(async () => {
-    const delay = Math.max(0, nextProviderRequestAt - Date.now());
-    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-    nextProviderRequestAt = Date.now() + 1_050;
-    return task();
-  });
-  providerQueue = result.then(() => undefined, () => undefined);
-  return result;
-}
+const coordinatesSchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+});
 
 export const geocodingRoutes: FastifyPluginAsync = async (app) => {
   app.get('/geocoding/search', { preHandler: requireUser }, async (request, reply) => {
@@ -58,45 +15,44 @@ export const geocodingRoutes: FastifyPluginAsync = async (app) => {
       query: z.string().trim().min(3).max(160),
       limit: z.coerce.number().min(1).max(8).default(7),
     }).parse(request.query);
-    const cacheKey = `${query.query.toLocaleLowerCase('ru')}|${query.limit}`;
-    const cached = cache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return { items: cached.items };
-
-    const url = new URL(env.GEOCODING_URL);
-    url.searchParams.set('q', query.query);
-    url.searchParams.set('format', 'jsonv2');
-    url.searchParams.set('addressdetails', '1');
-    url.searchParams.set('accept-language', 'ru');
-    url.searchParams.set('limit', String(query.limit));
-
     try {
-      const items = await scheduleProviderRequest(async () => {
-        const response = await fetch(url, {
-          headers: { 'User-Agent': env.GEOCODING_USER_AGENT, Accept: 'application/json' },
-          signal: AbortSignal.timeout(8_000),
-        });
-        if (!response.ok) throw new Error(`Geocoding ${response.status}`);
-        const providerItems = await response.json() as ProviderResult[];
-        return providerItems.map((item, index): GeocodeItem => {
-          const address = item.address ?? {};
-          const name = item.name ?? address.amenity ?? address.tourism ?? address.road ?? item.display_name.split(',')[0] ?? query.query;
-          return {
-            id: `geo-${index}-${item.lat}-${item.lon}`,
-            name,
-            address: item.display_name,
-            city: address.city ?? address.town ?? address.village ?? address.municipality ?? null,
-            countryName: address.country ?? null,
-            categoryCode: category(item),
-            coordinates: { lat: Number(item.lat), lng: Number(item.lon) },
-          };
-        });
-      });
-      if (cache.size >= 500) cache.delete(cache.keys().next().value!);
-      cache.set(cacheKey, { expiresAt: Date.now() + 24 * 60 * 60 * 1_000, items });
-      return { items };
+      return { items: await searchGeography(query.query, query.limit) };
     } catch (error) {
       request.log.warn({ error }, 'geocoding unavailable');
       return reply.code(502).send({ code: 'GEOCODING_UNAVAILABLE', message: 'Поиск адреса временно недоступен. Выберите точку на карте.' });
     }
+  });
+
+  app.get('/geocoding/reverse', { preHandler: requireUser }, async (request, reply) => {
+    const coordinates = coordinatesSchema.parse(request.query);
+    try {
+      return { item: await reverseGeography(coordinates) };
+    } catch (error) {
+      request.log.warn({ error, coordinates }, 'reverse geocoding unavailable');
+      return reply.code(502).send({ code: 'GEOCODING_UNAVAILABLE', message: 'Не удалось уточнить город и страну. Попробуйте ещё раз.' });
+    }
+  });
+
+  app.post('/geocoding/refresh-my-places', { preHandler: requireUser, config: { rateLimit: { max: 6, timeWindow: '1 hour' } } }, async (request, reply) => {
+    const candidates = await pool.query(`SELECT DISTINCT p.id,ST_Y(p.location::geometry) lat,ST_X(p.location::geometry) lng
+      FROM places p JOIN map_entries e ON e.place_id=p.id
+      WHERE e.user_id=$1 AND e.entry_type='VISITED' AND e.deleted_at IS NULL
+        AND (p.geography_checked_at IS NULL OR p.country_code IS NULL)
+      ORDER BY p.id LIMIT 5`, [request.user.sub]);
+    let refreshed = 0;
+    for (const row of candidates.rows) {
+      try {
+        const geo = await reverseGeography({ lat: Number(row.lat), lng: Number(row.lng) });
+        await pool.query(`UPDATE places SET city=$2,region=$3,country_name=$4,country_code=$5,address=COALESCE(address,$6),
+          geography_checked_at=now() WHERE id=$1`, [row.id, geo.city, geo.region, geo.countryName, geo.countryCode, geo.address]);
+        refreshed += 1;
+      } catch (error) {
+        request.log.warn({ error, placeId: row.id }, 'place geography refresh failed');
+      }
+    }
+    const remaining = await pool.query(`SELECT count(DISTINCT p.id)::int count FROM places p JOIN map_entries e ON e.place_id=p.id
+      WHERE e.user_id=$1 AND e.entry_type='VISITED' AND e.deleted_at IS NULL
+        AND (p.geography_checked_at IS NULL OR p.country_code IS NULL)`, [request.user.sub]);
+    return reply.send({ refreshed, remaining: Number(remaining.rows[0].count) });
   });
 };

@@ -15,13 +15,16 @@ export const atlasRoutes:FastifyPluginAsync=async(app)=>{
     if(id!==request.user.sub&&!access.rows[0].show_statistics)return reply.code(403).send({code:'STATS_PRIVATE',message:'Пользователь скрыл статистику'});
     const args:unknown[]=[id,q.year??null,q.month??null];
     const result=await pool.query(`WITH visited AS (
-      SELECT e.id,e.visit_date,e.created_at,e.description,p.id place_id,p.city,p.country_name,p.category_id,p.location,
+      SELECT e.id,e.visit_date,e.created_at,e.description,p.id place_id,p.city,p.region,p.country_name,p.country_code,p.geography_checked_at,p.category_id,p.location,
         lag(p.location) OVER(ORDER BY COALESCE(e.visit_date,e.created_at::date),e.created_at) previous_location
       FROM map_entries e JOIN places p ON p.id=e.place_id
       WHERE e.user_id=$1 AND e.entry_type='VISITED' AND e.deleted_at IS NULL
         AND ($2::int IS NULL OR EXTRACT(YEAR FROM COALESCE(e.visit_date,e.created_at::date))=$2)
         AND ($3::int IS NULL OR EXTRACT(MONTH FROM COALESCE(e.visit_date,e.created_at::date))=$3)
-    ), totals AS (SELECT count(*)::int places,count(DISTINCT city) FILTER(WHERE city IS NOT NULL)::int cities,count(DISTINCT country_name) FILTER(WHERE country_name IS NOT NULL)::int countries,
+    ), totals AS (SELECT count(DISTINCT place_id)::int places,
+      count(DISTINCT concat_ws('|',COALESCE(country_code,lower(country_name)),lower(COALESCE(region,'')),lower(city))) FILTER(WHERE city IS NOT NULL)::int cities,
+      count(DISTINCT COALESCE(country_code,lower(country_name))) FILTER(WHERE country_code IS NOT NULL OR country_name IS NOT NULL)::int countries,
+      count(DISTINCT place_id) FILTER(WHERE geography_checked_at IS NULL OR country_code IS NULL)::int unresolved_places,
       COALESCE(round(sum(CASE WHEN previous_location IS NULL THEN 0 ELSE ST_Distance(location,previous_location) END)/1000)::int,0) distance_km FROM visited),
     favorite AS (SELECT COALESCE(pc.name,'Другое') name,count(*)::int count FROM visited v LEFT JOIN place_categories pc ON pc.id=v.category_id GROUP BY pc.name ORDER BY count DESC LIMIT 1),
     farthest AS (SELECT v.id,p.name,round(ST_Distance(v.location,u.home_location)/1000)::int distance_km FROM visited v JOIN places p ON p.id=v.place_id JOIN users u ON u.id=$1 WHERE u.home_location IS NOT NULL ORDER BY ST_Distance(v.location,u.home_location) DESC LIMIT 1)

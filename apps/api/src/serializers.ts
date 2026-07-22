@@ -7,7 +7,7 @@ export function serializeUser(row: any, withStats = false) {
 export function serializePlace(row: any) {
   return { id: row.place_id ?? row.id, name: row.place_name ?? row.name, description: row.place_description ?? row.description ?? null,
     categoryCode: row.category_code ?? 'other', categoryName: row.category_name ?? 'Другое',
-    coordinates: { lat: Number(row.lat), lng: Number(row.lng) }, city: row.city ?? null, countryName: row.country_name ?? null, address: row.address ?? null,
+    coordinates: { lat: Number(row.lat), lng: Number(row.lng) }, city: row.city ?? null, region: row.region ?? null, countryName: row.country_name ?? null, countryCode: row.country_code ?? null, address: row.address ?? null,
     entriesCount: Number(row.entries_count ?? 0), visitedCount: Number(row.visited_count ?? 0), wishlistCount: Number(row.wishlist_count ?? 0), popularity: Number(row.popularity_score ?? 0) };
 }
 
@@ -22,7 +22,7 @@ export function serializeEntry(row: any) {
 }
 
 export const entrySelect = `
-  SELECT e.*, p.name place_name, p.description place_description, p.city, p.country_name, p.address, p.popularity_score,
+  SELECT e.*, p.name place_name, p.description place_description, p.city, p.region, p.country_name, p.country_code, p.address, p.popularity_score,
     ST_Y(p.location::geometry) lat, ST_X(p.location::geometry) lng, pc.code category_code, pc.name category_name,
     u.display_name, u.avatar_url, u.telegram_username, mi.code icon_code,
     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',m.id,'originalUrl',m.original_url,'mediumUrl',m.medium_url,'thumbnailUrl',m.thumbnail_url,'width',m.width,'height',m.height) ORDER BY em.sort_order) FROM map_entry_media em JOIN media m ON m.id=em.media_id WHERE em.map_entry_id=e.id AND m.deleted_at IS NULL),'[]') media

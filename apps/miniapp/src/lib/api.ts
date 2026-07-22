@@ -76,14 +76,14 @@ export async function authenticateMobileGrant(grant: string) {
   return saveSession(data);
 }
 
-export interface GeocodeResult { id: string; name: string; address: string; city: string | null; countryName: string | null; categoryCode: string; coordinates: { lat: number; lng: number } }
+export interface GeocodeResult { id: string; name: string; address: string; city: string | null; region: string | null; countryName: string | null; countryCode: string | null; categoryCode: string; coordinates: { lat: number; lng: number } }
 export interface CollectionSummary { id: string; userId: string; title: string; description: string | null; visibility: string; coverUrl: string | null; placesCount: number; followersCount: number; isFollowing: boolean; createdAt: string; author: { id: string; displayName: string; avatarUrl: string | null; telegramUsername?: string | null } }
 export interface CollectionDetail extends CollectionSummary { entries: MapEntry[] }
 export type ConnectionKind = 'followers' | 'following' | 'friends';
 export interface FriendLocation { id: string; displayName: string; avatarUrl: string | null; telegramUsername: string | null; coordinates: { lat: number; lng: number }; accuracy: number | null; recordedAt: string; isLive: boolean }
 export interface Achievement { code: string; title: string; description: string; icon: string; xp: number; tier?: number; progress: number; target: number; unlockedAt: string | null }
 export interface AchievementsResponse { level: number; levelTitle: string; totalXp: number; levelXp: number; nextLevelXp: number; achievements: Achievement[] }
-export interface AtlasSummary { places:number;cities:number;countries:number;distance_km:number;favorite_category:string|null;favorite_count:number|null;farthest:{id:string;name:string;distance_km:number}|null;homeCity:string|null;year:number|null;month:number|null;onThisDay:MapEntry[] }
+export interface AtlasSummary { places:number;cities:number;countries:number;unresolved_places:number;distance_km:number;favorite_category:string|null;favorite_count:number|null;farthest:{id:string;name:string;distance_km:number}|null;homeCity:string|null;year:number|null;month:number|null;onThisDay:MapEntry[] }
 export interface ComparePlace { id:string;name:string;city:string|null;countryName:string|null;coordinates:{lat:number;lng:number} }
 export interface TravelComparison { commonVisited:ComparePlace[];onlyMine:ComparePlace[];onlyTheirs:ComparePlace[];commonWishlist:ComparePlace[];together:ComparePlace[] }
 export interface EntrySocial { counts:Record<string,number>;mine:string[];companions:{userId:string;status:string;displayName:string;avatarUrl:string|null}[];mergeSource:{entryId:string;displayName:string}|null }
@@ -106,6 +106,8 @@ export const api = {
   friendLocations: () => request<{ items: FriendLocation[] }>('/locations/friends'),
   map: (bbox: string, layers: string, entryTypes: string) => request<{ items: MapEntry[] }>(`/map/entries?bbox=${encodeURIComponent(bbox)}&zoom=10&layers=${encodeURIComponent(layers)}&entryTypes=${encodeURIComponent(entryTypes)}`),
   geocode: (query: string) => request<{ items: GeocodeResult[] }>(`/geocoding/search?query=${encodeURIComponent(query)}&limit=7`),
+  reverseGeocode: (coordinates: { lat:number; lng:number }) => request<{ item: GeocodeResult }>(`/geocoding/reverse?lat=${coordinates.lat}&lng=${coordinates.lng}`),
+  refreshMyPlacesGeography: () => request<{ refreshed:number; remaining:number }>('/geocoding/refresh-my-places',{method:'POST',body:'{}'}),
   createEntry: (data: CreateEntryInput) => request<MapEntry>('/entries', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(data) }),
   updateEntry: (id: string, data: unknown) => request<MapEntry>(`/entries/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEntry: (id: string) => request<void>(`/entries/${id}`, { method: 'DELETE' }),

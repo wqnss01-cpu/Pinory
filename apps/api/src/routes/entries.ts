@@ -6,6 +6,7 @@ import { pool, tx } from '../db.js';
 import { requireUser } from '../auth.js';
 import { entrySelect, serializeEntry } from '../serializers.js';
 import { processAndUpload } from '../services/storage.js';
+import { reverseGeography } from '../services/geography.js';
 
 async function getVisibleEntry(id: string, viewerId: string) {
   const result = await pool.query(`${entrySelect} WHERE e.id=$1 AND e.deleted_at IS NULL AND u.is_blocked=false AND pinory_entry_visible(e.user_id,e.visibility,$2) AND (e.entry_type<>'STORY' OR e.expires_at>now())`, [id, viewerId]);
@@ -15,18 +16,31 @@ async function getVisibleEntry(id: string, viewerId: string) {
 export const entryRoutes: FastifyPluginAsync = async (app) => {
   app.post('/entries', { preHandler: requireUser }, async (request, reply) => {
     const input = CreateEntrySchema.parse(request.body); const key = String(request.headers['idempotency-key'] ?? crypto.randomUUID());
+    let resolvedPlace = input.place;
+    if (resolvedPlace && (!resolvedPlace.countryCode || !resolvedPlace.countryName)) {
+      try {
+        const geo = await reverseGeography(resolvedPlace.coordinates);
+        resolvedPlace = { ...resolvedPlace, city: geo.city ?? undefined, region: geo.region ?? undefined, countryName: geo.countryName ?? undefined, countryCode: geo.countryCode ?? undefined, address: resolvedPlace.address ?? geo.address };
+      } catch (error) {
+        request.log.warn({ error, coordinates: resolvedPlace.coordinates }, 'entry geography resolution failed');
+      }
+    }
     const existing = await pool.query(`SELECT response FROM idempotency_keys WHERE user_id=$1 AND key=$2 AND route='POST /entries'`, [request.user.sub, key]);
     if (existing.rows[0]) return existing.rows[0].response;
     const entryId = await tx(async (client) => {
       let placeId = input.placeId;
-      if (!placeId && input.place) {
-        const p = input.place;
+      if (!placeId && resolvedPlace) {
+        const p = resolvedPlace;
         const duplicate = await client.query(`SELECT id FROM places WHERE normalized_name=lower($1) AND ST_DWithin(location,ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,40) LIMIT 1`, [p.name,p.coordinates.lng,p.coordinates.lat]);
         placeId = duplicate.rows[0]?.id;
-        if (!placeId) {
-          const inserted = await client.query(`INSERT INTO places(name,normalized_name,category_id,location,city,country_name,address,created_by_user_id)
-            VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8) RETURNING id`,
-            [p.name,p.categoryCode,p.coordinates.lng,p.coordinates.lat,p.city??null,p.countryName??null,p.address??null,request.user.sub]);
+        if (placeId) {
+          await client.query(`UPDATE places SET city=COALESCE($2,city),region=COALESCE($3,region),country_name=COALESCE($4,country_name),
+            country_code=COALESCE($5,country_code),address=COALESCE($6,address),geography_checked_at=CASE WHEN $5 IS NOT NULL THEN now() ELSE geography_checked_at END WHERE id=$1`,
+            [placeId,p.city??null,p.region??null,p.countryName??null,p.countryCode??null,p.address??null]);
+        } else {
+          const inserted = await client.query(`INSERT INTO places(name,normalized_name,category_id,location,city,region,country_name,country_code,address,created_by_user_id,geography_checked_at)
+            VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8,$9,$10,CASE WHEN $8 IS NOT NULL THEN now() ELSE NULL END) RETURNING id`,
+            [p.name,p.categoryCode,p.coordinates.lng,p.coordinates.lat,p.city??null,p.region??null,p.countryName??null,p.countryCode??null,p.address??null,request.user.sub]);
           placeId = inserted.rows[0].id;
         }
       }
