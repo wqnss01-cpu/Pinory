@@ -35,11 +35,11 @@ export const entryRoutes: FastifyPluginAsync = async (app) => {
         placeId = duplicate.rows[0]?.id;
         if (placeId) {
           await client.query(`UPDATE places SET city=COALESCE($2,city),region=COALESCE($3,region),country_name=COALESCE($4,country_name),
-            country_code=COALESCE($5,country_code),address=COALESCE($6,address),geography_checked_at=CASE WHEN $5 IS NOT NULL THEN now() ELSE geography_checked_at END WHERE id=$1`,
+            country_code=COALESCE($5::text,country_code),address=COALESCE($6,address),geography_checked_at=CASE WHEN $5::text IS NOT NULL THEN now() ELSE geography_checked_at END WHERE id=$1`,
             [placeId,p.city??null,p.region??null,p.countryName??null,p.countryCode??null,p.address??null]);
         } else {
           const inserted = await client.query(`INSERT INTO places(name,normalized_name,category_id,location,city,region,country_name,country_code,address,created_by_user_id,geography_checked_at)
-            VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8,$9,$10,CASE WHEN $8 IS NOT NULL THEN now() ELSE NULL END) RETURNING id`,
+            VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8::text,$9,$10,CASE WHEN $8::text IS NOT NULL THEN now() ELSE NULL END) RETURNING id`,
             [p.name,p.categoryCode,p.coordinates.lng,p.coordinates.lat,p.city??null,p.region??null,p.countryName??null,p.countryCode??null,p.address??null,request.user.sub]);
           placeId = inserted.rows[0].id;
         }

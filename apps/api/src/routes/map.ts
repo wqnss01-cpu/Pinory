@@ -86,7 +86,7 @@ export const mapRoutes: FastifyPluginAsync = async (app) => {
     let place=input;
     if(!place.countryCode||!place.countryName){try{const geo=await reverseGeography(place.coordinates);place={...place,city:geo.city??undefined,region:geo.region??undefined,countryName:geo.countryName??undefined,countryCode:geo.countryCode??undefined,address:place.address??geo.address}}catch(error){request.log.warn({error},'place geography resolution failed')}}
     const result = await pool.query(`INSERT INTO places(name,normalized_name,category_id,location,city,region,country_name,country_code,address,created_by_user_id,geography_checked_at)
-      VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8,$9,$10,CASE WHEN $8 IS NOT NULL THEN now() ELSE NULL END)
+      VALUES($1,lower($1),(SELECT id FROM place_categories WHERE code=$2),ST_SetSRID(ST_MakePoint($3,$4),4326)::geography,$5,$6,$7,$8::text,$9,$10,CASE WHEN $8::text IS NOT NULL THEN now() ELSE NULL END)
       RETURNING *,ST_Y(location::geometry) lat,ST_X(location::geometry) lng`, [place.name,place.categoryCode,place.coordinates.lng,place.coordinates.lat,place.city??null,place.region??null,place.countryName??null,place.countryCode??null,place.address??null,request.user.sub]);
     return serializePlace({ ...result.rows[0], category_code: place.categoryCode, category_name: place.categoryCode });
   });
